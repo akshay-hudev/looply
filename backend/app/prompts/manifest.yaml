@@ -1,0 +1,224 @@
+# Maps each LocalMind agent to its task contract and the agency-agents persona sections it borrows.
+# Section names are matched by prefix against normalized `## ` headings (emoji and "Your" stripped).
+# `exclude` drops lines matching any regex; use it for coding-tool, tool-stack or autonomy instructions
+# that contradict LocalMind (e.g. "publish without approval").
+
+defaults:
+  max_section_chars: 1500
+  exclude:
+    - "screenshot"
+    - "playwright"
+    - "\\bspawn\\b"
+    - "\\.json\\b"
+    - "^\\s*(ls|cat|grep|curl|npm|cd)\\s"
+
+agents:
+  campaign_manager:
+    contract: campaign_manager
+    personas:
+      - file: agents-orchestrator.md
+        focus: running the LocalMind campaign pipeline, extracting campaign facts and deciding which specialists run next.
+        sections: [identity, critical rules, communication style]
+        exclude: ["\\bQA\\b", "\\bdev\\b", "task list", "project", "implementation"]
+
+  business:
+    contract: business
+    personas:
+      - file: design-brand-guardian.md
+        focus: building a concise brand profile and voice for a small local business.
+        sections: [identity, critical rules, communication style]
+      - file: business-strategist.md
+        focus: understanding what the business sells and what it is trying to achieve.
+        sections: [identity, critical rules]
+        max_section_chars: 900
+
+  locality:
+    contract: locality
+    personas:
+      - file: product-trend-researcher.md
+        focus: interpreting verified neighbourhood data into marketing implications. You never research or invent places yourself.
+        sections: [identity, core capabilities, decision framework]
+        exclude: ["technology scouting", "patent", "venture", "Use this agent"]
+
+  audience:
+    contract: audience
+    personas:
+      - file: paid-media-paid-social-strategist.md
+        focus: segmenting the audience of a local business for organic social and messaging channels.
+        sections: [identity, core capabilities, specialized skills]
+      - file: product-behavioral-nudge-engine.md
+        focus: describing what motivates each segment to act on an offer.
+        sections: [identity, critical rules]
+        exclude: ["notification", "dark pattern"]
+
+  strategy:
+    contract: strategy
+    personas:
+      - file: marketing-social-media-strategist.md
+        focus: choosing platforms, formats, tone and timing for a local-business campaign.
+        sections: [role definition, core capabilities, platform strategy framework, campaign management]
+        exclude: ["twitter", "thought leadership", "employee advocacy"]
+      - file: marketing-growth-hacker.md
+        focus: picking the channel mix most likely to drive the stated goal.
+        sections: [identity, core capabilities]
+        exclude: ["viral coefficient", "K-factor", "product-led"]
+
+  content_director:
+    contract: content_director
+    personas:
+      - file: marketing-content-creator.md
+        focus: turning a campaign strategy into per-format creative briefs.
+        sections: [identity, core capabilities, specialized skills]
+        exclude: ["podcast", "long-form", "blog", "SEO", "whitepaper"]
+      - file: design-visual-storyteller.md
+        focus: one campaign idea expressed as a clear visual story in every format.
+        sections: [identity, critical rules]
+      - file: paid-media-creative-strategist.md
+        focus: distinct, testable creative angles and scroll-stopping hooks per format.
+        sections: [specialized skills]
+        exclude: ["RSA", "Performance Max", "pinning", "asset group"]
+
+  text:
+    contract: text
+    personas:
+      - file: marketing-content-creator.md
+        focus: writing the core campaign message that every asset is derived from.
+        sections: [identity, core capabilities]
+        exclude: ["podcast", "SEO", "blog"]
+      - file: paid-media-creative-strategist.md
+        focus: hooks, headlines and CTAs that convert.
+        sections: [identity, core capabilities, specialized skills]
+        exclude: ["RSA", "Performance Max", "pinning", "asset group"]
+
+  platform_instagram:
+    contract: platform_instagram
+    personas:
+      - file: marketing-instagram-curator.md
+        focus: Instagram posts, stories, reels, carousels and posters for a local business.
+        sections: [identity, core mission, critical rules, communication style]
+        exclude: ["shopping", "IGTV"]
+      - file: marketing-carousel-growth-engine.md
+        focus: carousel narrative structure and slide-one hooks.
+        sections: [critical rules]
+        exclude: ["gemini", "upload-post", "autonomy", "zero confirmation", "without asking", "notify only", "self-schedule", "JPG", "auto-fix", "learnings", "competitor", "website", "768x1376", "TikTok"]
+      - file: paid-media-creative-strategist.md
+        focus: thumb-stopping hooks and CTA variants for testing.
+        sections: [specialized skills]
+        exclude: ["RSA", "Performance Max", "pinning"]
+
+  platform_whatsapp:
+    contract: platform_whatsapp
+    personas:
+      - file: marketing-email-strategist.md
+        focus: short, permission-based direct-response messages; apply email lifecycle craft to WhatsApp broadcasts to opted-in customers.
+        sections: [identity, critical rules, communication style]
+        exclude: ["DKIM", "\\bSPF\\b", "DMARC", "deliverability", "\\bESP\\b", "subject line", "inbox", "BIMI", "warm-?up", "\\bIP\\b"]
+      - file: paid-media-creative-strategist.md
+        focus: opening lines and CTAs that get a reply from opted-in customers.
+        sections: [specialized skills]
+        exclude: ["RSA", "Performance Max", "pinning", "asset group"]
+
+  platform_linkedin:
+    contract: platform_linkedin
+    personas:
+      - file: marketing-linkedin-content-creator.md
+        focus: professional LinkedIn posts for a local business page.
+        sections: [identity, core mission, critical rules, communication style]
+
+  platform_facebook:
+    contract: platform_facebook
+    personas:
+      - file: marketing-social-media-strategist.md
+        focus: Facebook community posts for a neighbourhood audience.
+        sections: [role definition, core capabilities, communication style]
+        exclude: ["twitter", "linkedin", "thought leadership"]
+      - file: marketing-content-creator.md
+        focus: warm, shareable neighbourhood posts with a clear hook.
+        sections: [identity]
+        exclude: ["podcast", "SEO", "blog"]
+
+  language_culture:
+    contract: language_culture
+    personas:
+      - file: language-translator.md
+        focus: marketing localization into any target language (not only Spanish/English). Ignore Spanish-specific examples and keep the principles.
+        sections: [identity, critical rules]
+        exclude: ["spanish", "usted", "mexico", "coche", "medical", "legal", "emergency", "pronunciation", "travel", "¿", "lloviendo"]
+      - file: specialized-cultural-intelligence-strategist.md
+        focus: culturally appropriate, non-stereotyped local marketing copy.
+        sections: [identity, core mission, critical rules]
+        exclude: ["\\bUI\\b", "\\bUX\\b", "\\bforms?\\b", "developer", "dropdown", "First Name"]
+
+  truth:
+    contract: truth
+    personas:
+      - file: testing-reality-checker.md
+        focus: verifying that a marketing asset states exactly the business facts it was given. Your evidence is the locked fact sheet and the asset text.
+        sections: [identity, core mission, critical rules]
+        exclude: ["visual proof", "load time", "cross-device", "integration", "production ready", "test-results", "A\\+", "luxury", "dark theme", "website", "\\bQA\\b", "journeys"]
+      - file: support-legal-compliance-checker.md
+        focus: flagging unsupported or misleading advertising claims.
+        sections: [identity, critical rules]
+        exclude: ["GDPR", "CCPA", "HIPAA", "\\bSOX\\b", "\\bPCI\\b", "\\bdata\\b", "privacy", "contract", "employment"]
+
+  performance:
+    contract: performance
+    personas:
+      - file: project-management-experiment-tracker.md
+        focus: predicting which creative variant will perform best before launch, with honest uncertainty.
+        sections: [identity, critical rules]
+        exclude: ["sample size", "statistical power", "sequential", "rollback", "feature flag"]
+      - file: paid-media-creative-strategist.md
+        focus: judging hook strength, clarity and CTA strength.
+        sections: [core capabilities]
+
+  optimizer:
+    contract: optimizer
+    personas:
+      - file: marketing-growth-hacker.md
+        focus: improving a single campaign asset to lift response without changing the offer.
+        sections: [identity, core capabilities]
+        exclude: ["viral coefficient", "K-factor", "product-led", "referral program"]
+      - file: paid-media-creative-strategist.md
+        focus: rewriting hooks, headlines and CTAs.
+        sections: [specialized skills]
+
+  visual:
+    contract: visual
+    personas:
+      - file: design-image-prompt-engineer.md
+        focus: prompts for Agnes Image 2.5 Flash posters, story cards, offer cards and carousel slides.
+        sections: [identity, core mission, critical rules]
+        exclude: ["midjourney", "dall-e", "stable diffusion", "--ar", "--v"]
+      - file: design-visual-storyteller.md
+        focus: one clear visual story per asset.
+        sections: [identity, critical rules]
+      - file: design-inclusive-visuals-specialist.md
+        focus: authentic, non-stereotyped depiction of Indian and other local audiences.
+        sections: [identity, critical rules]
+      - file: design-brand-guardian.md
+        focus: keeping palette, typography and mood consistent with the business's brand profile.
+        sections: [critical rules]
+
+  video:
+    contract: video
+    personas:
+      - file: marketing-short-video-editing-coach.md
+        focus: planning short promotional reels for Agnes Video 2.5 generation.
+        sections: [identity, critical rules]
+        exclude: ["CapCut", "Premiere", "DaVinci", "Final Cut", "keyboard", "proxy", "asset library", "Source Han", "Alibaba", "Douyin", "Kuaishou", "LUT", "LOG mode", "export"]
+      - file: marketing-tiktok-strategist.md
+        focus: hook-first vertical video structure for Reels and Shorts.
+        sections: [identity, critical rules]
+        exclude: ["TikTok Shop", "creator fund", "duet", "stitch"]
+
+  analytics:
+    contract: analytics
+    personas:
+      - file: support-analytics-reporter.md
+        focus: turning post-publication metrics into learnings for the next campaign.
+        sections: [identity, critical rules, communication style]
+        exclude: ["\\bSQL\\b", "dashboard", "\\bETL\\b", "warehouse"]
+
+# Reference only (not rendered at runtime): marketing-multi-platform-publisher.md informed the
+# publish-job design (per-platform adapters, per-post status and retry).

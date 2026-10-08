@@ -1,0 +1,312 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+
+import { api } from "../lib/api";
+import { Business, Contact, PLATFORMS, SocialAccount } from "../lib/types";
+import { Badge, Button, Card, ErrorNote, Field, inputCls } from "../lib/ui";
+
+type Platform = (typeof PLATFORMS)[number];
+type Method = "login" | "token" | "simulated";
+type Providers = Record<Platform, { login: boolean; via: string }>;
+
+const META: Record<Platform, { label: string; icon: string; color: string; needs: string; idLabel: string; idHelp: string }> = {
+  instagram: {
+    label: "Instagram", icon: "📸", color: "from-pink-500 to-orange-400",
+    needs: "An Instagram Professional account (Business or Creator).",
+    idLabel: "Instagram business account id", idHelp: "Meta Business Suite → Settings → Instagram accounts.",
+  },
+  facebook: {
+    label: "Facebook Page", icon: "📘", color: "from-blue-600 to-blue-400",
+    needs: "A Facebook Page you manage.", idLabel: "Facebook Page id", idHelp: "Your Page → About → Page transparency → Page ID.",
+  },
+  whatsapp: {
+    label: "WhatsApp Business", icon: "💬", color: "from-green-600 to-emerald-400",
+    needs: "A WhatsApp Business (Cloud API) number in Meta Business Manager.",
+    idLabel: "Phone number id", idHelp: "Meta for Developers → WhatsApp → API Setup → Phone number ID.",
+  },
+  linkedin: {
+    label: "LinkedIn", icon: "💼", color: "from-sky-700 to-sky-500",
+    needs: "A LinkedIn profile (or a Page you administer).", idLabel: "Person or organization URN",
+    idHelp: "e.g. urn:li:person:abc123 or urn:li:organization:123.",
+  },
+};
+const STEPS = ["Choose platform", "How to connect", "Connect", "Done"];
+
+export default function Accounts() {
+  const qc = useQueryClient();
+  const [params, setParams] = useSearchParams();
+  const accounts = useQuery({ queryKey: ["accounts"], queryFn: () => api.get<SocialAccount[]>("/social/accounts") });
+  const businesses = useQuery({ queryKey: ["businesses"], queryFn: () => api.get<Business[]>("/businesses") });
+  const providers = useQuery({ queryKey: ["providers"], queryFn: () => api.get<Providers>("/social/providers") });
+  const connected = params.get("connected") as Platform | null;
+  const callbackError = params.get("error");
+  const notice = params.get("notice");
+  const [step, setStep] = useState(connected || callbackError ? 3 : 0);
+  const [platform, setPlatform] = useState<Platform>(connected ?? "instagram");
+  const [method, setMethod] = useState<Method>("login");
+  const [biz, setBiz] = useState("");
+  const [error, setError] = useState<unknown>(callbackError ? new Error(callbackError) : null);
+  const [busy, setBusy] = useState(false);
+  const [tok, setTok] = useState({ access_token: "", external_id: "", waba_id: "", display_name: "" });
+
+  const loginReady = providers.data?.[platform]?.login ?? false;
+  const via = providers.data?.[platform]?.via ?? (platform === "linkedin" ? "LinkedIn" : "Facebook");
+  const m = META[platform];
+
+  function restart() {
+    setParams({});
+    setError(null);
+    setStep(0);
+  }
+
+  async function changeAccount(account: SocialAccount) {
+    setError(null);
+    setBusy(true);
+    try {
+      await api.del(`/social/accounts/${account.id}`);
+      await qc.invalidateQueries({ queryKey: ["accounts"] });
+      const next = account.target_platform as Platform;
+      setPlatform(next);
+      setMethod(providers.data?.[next]?.login ? "login" : "simulated");
+      setParams({});
+      setStep(2);
+    } catch (e) { setError(e); } finally { setBusy(false); }
+  }
+
+  async function go() {
+    setError(null);
+    setBusy(true);
+    try {
+      if (method === "login") {
+        const res = await api.post<{ authorize_url: string }>(`/social/${platform}/connect`, { business_id: biz || null });
+        window.location.href = res.authorize_url;
+        return;
+      }
+      if (method === "token") {
+        await api.post("/social/token", { platform, ...tok, waba_id: tok.waba_id || null, business_id: biz || null });
+        setTok({ access_token: "", external_id: "", waba_id: "", display_name: "" });
+      } else {
+        await api.post("/social/mock/connect", { target_platform: platform, business_id: biz || null });
+      }
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+      setStep(3);
+    } catch (e) { setError(e); } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-4">
+      <h1 className="text-2xl font-bold">Connect your social accounts</h1>
+      <ol className="flex flex-wrap gap-2 text-xs">
+        {STEPS.map((s, i) => (
+          <li key={s} className={`flex items-center gap-1.5 rounded-full px-3 py-1 ${i === step ? "bg-brand-600 text-white" : i < step ? "bg-brand-100 text-brand-800" : "bg-slate-100 text-slate-500"}`}>
+            <span className="font-semibold">{i < step ? "✓" : i + 1}</span>{s}
+          </li>
+        ))}
+      </ol>
+
+      {step === 0 && (
+        <Card className="space-y-4">
+          <h2 className="text-lg font-semibold">Which account do you want to connect?</h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {PLATFORMS.map((p) => {
+              const linked = (accounts.data ?? []).filter((a) => a.target_platform === p);
+              const live = linked.some((a) => !a.simulated);
+              return (
+              <button key={p} type="button" onClick={() => { setPlatform(p); setMethod(providers.data?.[p]?.login ? "login" : "simulated"); setStep(1); }}
+                className={`flex items-center gap-3 rounded-xl border p-3 text-left hover:border-brand-500 hover:bg-brand-50 ${live ? "border-emerald-400 bg-emerald-50" : "border-slate-200"}`}>
+                <span className={`flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br text-xl ${META[p].color}`}>{META[p].icon}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-2 font-semibold">
+                    {META[p].label}
+                    {live && <Badge tone="green">Connected</Badge>}
+                  </span>
+                  <span className="block truncate text-xs text-slate-500">
+                    {linked.length ? linked.map((a) => a.display_name).join(", ") : "Not connected"}
+                  </span>
+                </span>
+              </button>
+              );
+            })}
+          </div>
+          {(businesses.data ?? []).length > 1 && (
+            <Field label="Use these accounts for (optional)">
+              <select className={inputCls} value={biz} onChange={(e) => setBiz(e.target.value)}>
+                <option value="">All my businesses</option>
+                {(businesses.data ?? []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </Field>
+          )}
+        </Card>
+      )}
+
+      {step === 1 && (
+        <Card className="space-y-3">
+          <h2 className="text-lg font-semibold">How do you want to connect {m.label}?</h2>
+          <p className="text-xs text-slate-500">You need: {m.needs}</p>
+          <MethodOption on={method === "login"} onClick={() => setMethod("login")} disabled={!loginReady}
+            title={`Log in with ${via} (recommended)`}
+            text={loginReady
+              ? `You'll type your ${via} email and password on ${via}'s own secure page, then choose what LocalMind may post. We never see or store your password.`
+              : `Not set up on this server yet. An admin adds ${via === "LinkedIn" ? "LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET" : "META_APP_ID and META_APP_SECRET"} to the backend .env and restarts it. Until then, use one of the options below.`} />
+          <MethodOption on={method === "token"} onClick={() => setMethod("token")} title="Paste an access token"
+            text={`For developers who already have a ${via === "LinkedIn" ? "LinkedIn" : "Meta Graph API"} token. We check it with ${via} before saving.`} />
+          <MethodOption on={method === "simulated"} onClick={() => setMethod("simulated")} title="Try it with a simulated account"
+            text="Nothing is posted anywhere. Every publish is clearly labelled simulated, which is ideal for demos and testing." />
+          <details className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+            <summary className="cursor-pointer font-medium">Why can't I just type my password here?</summary>
+            Instagram, Facebook, WhatsApp and LinkedIn don't allow apps to log in with your password: their publishing APIs only
+            accept a permission token that you grant on their own login page. That also keeps your account safe, because
+            LocalMind never holds your password and you can revoke access at any time from your {via} settings.
+          </details>
+          <div className="flex justify-between pt-1">
+            <Button kind="ghost" onClick={() => setStep(0)}>← Back</Button>
+            <Button onClick={() => { setError(null); setStep(2); }} disabled={method === "login" && !loginReady}>Next →</Button>
+          </div>
+        </Card>
+      )}
+
+      {step === 2 && (
+        <Card className="space-y-3">
+          {method === "login" && (
+            <>
+              <h2 className="text-lg font-semibold">Log in with {via}</h2>
+              <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-700">
+                <li>Click the button below. {via}'s login page opens.</li>
+                <li>Enter your {via} email/phone and password there.</li>
+                <li>Pick the {m.label} {platform === "linkedin" ? "profile" : "account or Page"} and allow posting.</li>
+                <li>You'll come straight back here, connected.</li>
+              </ol>
+              <Button onClick={go} disabled={busy}>{busy ? "Opening…" : `Continue to ${via} →`}</Button>
+            </>
+          )}
+          {method === "token" && (
+            <>
+              <h2 className="text-lg font-semibold">Paste your {m.label} access token</h2>
+              <Field label={m.idLabel}>
+                <input className={inputCls} value={tok.external_id} onChange={(e) => setTok({ ...tok, external_id: e.target.value })} />
+              </Field>
+              <p className="-mt-2 text-xs text-slate-500">{m.idHelp}</p>
+              {platform === "whatsapp" && (
+                <Field label="WhatsApp Business Account id">
+                  <input className={inputCls} value={tok.waba_id} onChange={(e) => setTok({ ...tok, waba_id: e.target.value })} />
+                </Field>
+              )}
+              <Field label="Access token">
+                <input type="password" className={inputCls} value={tok.access_token} onChange={(e) => setTok({ ...tok, access_token: e.target.value })} />
+              </Field>
+              <Field label="Name to show (optional)">
+                <input className={inputCls} value={tok.display_name} onChange={(e) => setTok({ ...tok, display_name: e.target.value })} />
+              </Field>
+              <Button onClick={go} disabled={busy || !tok.access_token || !tok.external_id || (platform === "whatsapp" && !tok.waba_id)}>
+                {busy ? "Checking token…" : "Verify & connect"}
+              </Button>
+            </>
+          )}
+          {method === "simulated" && (
+            <>
+              <h2 className="text-lg font-semibold">Add a simulated {m.label} account</h2>
+              <p className="text-sm text-slate-600">You can run the whole flow (approve, publish, analytics) without posting anything real.</p>
+              <Button onClick={go} disabled={busy}>{busy ? "Adding…" : "Add simulated account"}</Button>
+            </>
+          )}
+          <ErrorNote error={error} />
+          <Button kind="ghost" onClick={() => setStep(1)}>← Back</Button>
+        </Card>
+      )}
+
+      {step === 3 && (
+        <Card className="space-y-3">
+          {error ? (
+            <>
+              <h2 className="text-lg font-semibold text-red-700">That didn't work</h2>
+              <ErrorNote error={error} />
+              <p className="text-sm text-slate-600">Anything already connected is still saved below. It stays until you press Change or Disconnect.</p>
+            </>
+          ) : (
+            <>
+              <h2 className="text-lg font-semibold">✅ {META[platform].label} is connected</h2>
+              <p className="text-sm text-slate-600">This login stays connected until you press Change or Disconnect.</p>
+              {notice === "no_page" && (
+                <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  Facebook accepted the login, but this user does not manage a Page. Publishing needs a Page. Create one, then press Change and log in again.
+                </p>
+              )}
+            </>
+          )}
+          <div className="flex gap-2">
+            <Button onClick={restart}>Connect another account</Button>
+            <Link to="/" className="rounded-lg border border-slate-300 px-4 py-2 font-medium text-slate-700 hover:bg-slate-50">Go to campaigns</Link>
+          </div>
+        </Card>
+      )}
+
+      <Card className="space-y-2 text-sm">
+        <h2 className="font-semibold">Your connected accounts</h2>
+        {(accounts.data ?? []).length === 0 && <p className="text-xs text-slate-500">None yet.</p>}
+        {(accounts.data ?? []).map((a) => (
+          <div key={a.id} className={`flex items-center justify-between gap-2 border-t pt-2 ${a.simulated ? "border-slate-100" : "border-emerald-100"}`}>
+            <div className="min-w-0">
+              <span className="mr-1">{META[a.target_platform as Platform]?.icon}</span>
+              <b className="capitalize">{a.target_platform}</b> · {a.display_name}{" "}
+              {a.simulated ? <Badge tone="amber">simulated</Badge> : <Badge tone="green">Connected</Badge>}
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button small kind="ghost" disabled={busy} onClick={() => changeAccount(a)}>Change</Button>
+              <Button small kind="danger" onClick={async () => { await api.del(`/social/accounts/${a.id}`); qc.invalidateQueries({ queryKey: ["accounts"] }); }}>Disconnect</Button>
+            </div>
+          </div>
+        ))}
+      </Card>
+
+      {(businesses.data ?? []).map((b) => (accounts.data ?? []).some((a) => a.target_platform === "whatsapp") && (
+        <Contacts key={b.id} business={b} />
+      ))}
+    </div>
+  );
+}
+
+function MethodOption({ on, onClick, title, text, disabled }: { on: boolean; onClick: () => void; title: string; text: string; disabled?: boolean }) {
+  return (
+    <button type="button" onClick={onClick} disabled={disabled}
+      className={`block w-full rounded-xl border p-3 text-left ${on && !disabled ? "border-brand-600 bg-brand-50 ring-1 ring-brand-600" : "border-slate-200"} ${disabled ? "cursor-not-allowed opacity-60" : "hover:bg-slate-50"}`}>
+      <div className="font-semibold">{title}</div>
+      <div className="text-xs text-slate-600">{text}</div>
+    </button>
+  );
+}
+
+function Contacts({ business }: { business: Business }) {
+  const qc = useQueryClient();
+  const list = useQuery({ queryKey: ["contacts", business.id], queryFn: () => api.get<Contact[]>(`/social/whatsapp/contacts?business_id=${business.id}`) });
+  const [row, setRow] = useState({ phone: "", name: "", opt_in_source: "" });
+  const [error, setError] = useState<unknown>(null);
+  const add = useMutation({
+    mutationFn: () => api.post<{ rejected: { reason: string }[] }>(`/social/whatsapp/contacts`, { business_id: business.id, contacts: [{ ...row, opted_in: true }] }),
+    onSuccess: (res: { rejected: { reason: string }[] }) => {
+      if (res.rejected.length) setError(new Error(res.rejected[0].reason));
+      else { setError(null); setRow({ phone: "", name: "", opt_in_source: "" }); }
+      qc.invalidateQueries({ queryKey: ["contacts", business.id] });
+    },
+    onError: setError,
+  });
+  return (
+    <Card className="space-y-2 text-sm">
+      <h2 className="font-semibold">WhatsApp contacts · {business.name}</h2>
+      <p className="text-xs text-slate-500">Business-initiated messages only go to contacts who opted in, and the consent source is recorded.</p>
+      <div className="flex flex-wrap gap-2 md:flex-nowrap">
+        <input className={inputCls} placeholder="+91…" value={row.phone} onChange={(e) => setRow({ ...row, phone: e.target.value })} />
+        <input className={inputCls} placeholder="Name" value={row.name} onChange={(e) => setRow({ ...row, name: e.target.value })} />
+        <input className={inputCls} placeholder="Opt-in source (e.g. in-store QR)" value={row.opt_in_source} onChange={(e) => setRow({ ...row, opt_in_source: e.target.value })} />
+        <Button small onClick={() => add.mutate()} disabled={!row.phone || !row.opt_in_source}>Add</Button>
+      </div>
+      <ErrorNote error={error} />
+      {(list.data ?? []).map((c) => (
+        <div key={c.id} className="flex items-center justify-between text-xs">
+          <span>{c.name || "—"} · {c.phone} · {c.opted_in ? `opted in via ${c.opt_in_source}` : "opted out"}</span>
+          {c.opted_in && <Button small kind="ghost" onClick={async () => { await api.post(`/social/whatsapp/contacts/${c.id}/opt-out`); qc.invalidateQueries({ queryKey: ["contacts", business.id] }); }}>Opt out</Button>}
+        </div>
+      ))}
+    </Card>
+  );
+}
