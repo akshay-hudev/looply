@@ -1,3 +1,7 @@
+# HR2-AI-44A0D3F7
+
+HACKERING 2.0 Round 2 project for Team CodebaLe (Agentic AI Track).
+
 # LocalMind
 
 Multi-agent marketing app: describe a promotion in plain language (or by voice), and LocalMind plans a
