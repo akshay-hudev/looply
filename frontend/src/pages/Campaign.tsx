@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 
 import LocalityMap from "../components/LocalityMap";
 import { api } from "../lib/api";
+import { displayOffer } from "../lib/offer";
 import { useCampaignStream } from "../lib/stream";
 import { Asset, Brief, Business, Campaign as CampaignT, LANGUAGES, Offer, SocialAccount } from "../lib/types";
 import { Badge, Button, Card, DocumentTitle, ErrorNote, Field, fieldCls, focusCls, idleCls, inputCls, selectedCls, Spinner, statusLabel, statusTone, Stepper } from "../lib/ui";
@@ -34,9 +35,9 @@ function cap(s: string) {
 }
 function offerLine(brief?: Brief, offer?: Offer): string {
   const typed = brief?.offer?.trim();
-  if (typed) return typed;
+  if (typed) return displayOffer(typed);
   const parts = [offer?.discount, offer?.price].filter(Boolean);
-  if (parts.length) return parts.join(" · ");
+  if (parts.length) return displayOffer(parts.join(" · "));
   return "No price or deal. We won't invent one.";
 }
 function langList(codes?: string[]) {
@@ -62,7 +63,8 @@ function factRows(offer: Offer) {
   return (Object.keys(OFFER_LABELS) as (keyof Offer)[]).flatMap((k) => {
     const v = offer[k];
     if (v == null || v === "" || (Array.isArray(v) && !v.length)) return [];
-    return [{ label: OFFER_LABELS[k], value: Array.isArray(v) ? v.join(", ") : String(v) }];
+    const text = Array.isArray(v) ? v.join(", ") : String(v);
+    return [{ label: OFFER_LABELS[k], value: displayOffer(text) }];
   });
 }
 
@@ -329,7 +331,7 @@ function StrategyTab({ campaign, onChanged }: { campaign: CampaignT; onChanged: 
       <Card className="space-y-2 text-sm">
         <h2 className="font-semibold">Your facts</h2>
         {brief?.product && <p><span className="text-slate-600">Promoting: </span><b>{brief.product}</b></p>}
-        {brief?.offer && <p><span className="text-slate-600">Deal: </span><b>{brief.offer}</b></p>}
+        {brief?.offer && <p><span className="text-slate-600">Deal: </span><b>{displayOffer(brief.offer)}</b></p>}
         {brief?.highlights && <p><span className="text-slate-600">What makes you special: </span><b>{brief.highlights}</b></p>}
         <div className="grid grid-cols-2 gap-1 text-xs">
           {factRows(offer).map((row) => (

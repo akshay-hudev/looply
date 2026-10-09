@@ -3,6 +3,7 @@ import { ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { api } from "../lib/api";
+import { displayOffer } from "../lib/offer";
 import { Brief, Business, LANGUAGES, PLATFORMS } from "../lib/types";
 import { Button, Card, DocumentTitle, ErrorNote, Field, focusCls, idleCls, inputCls, selectedCls, Stepper } from "../lib/ui";
 
@@ -29,7 +30,7 @@ const STEPS = ["Your shop", "The promotion", "Who it's for", "Where it goes", "C
 
 function offerLine(brief: Brief): string {
   const typed = brief.offer?.trim();
-  if (typed) return typed;
+  if (typed) return displayOffer(typed);
   return "No price or deal. We won't invent one.";
 }
 function langList(codes: string[]) {
@@ -39,12 +40,19 @@ function cap(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-type CampaignStart = { business_id: string | null; region: string | null; languages: string[]; note: string | null };
+type CampaignStart = {
+  business_id: string | null; region: string | null; languages: string[]; note: string | null;
+  product: string | null; offer: string | null; audience: string | null; goal: string | null;
+  occasion: string | null; event_date: string | null; tone: string | null; highlights: string | null;
+};
+
+const FACT_KEYS = ["product", "offer", "audience", "goal", "occasion", "event_date", "tone", "highlights"] as const;
 
 export default function NewCampaign() {
   const nav = useNavigate();
   const [params] = useSearchParams();
   const learningId = params.get("learning") ?? "";
+  const fromId = params.get("from") ?? "";
   const businesses = useQuery({ queryKey: ["businesses"], queryFn: () => api.get<Business[]>("/businesses") });
   const [step, setStep] = useState(0);
   const [businessId, setBusinessId] = useState("");
@@ -60,11 +68,12 @@ export default function NewCampaign() {
   const applied = useRef("");
 
   const start = useQuery({
-    queryKey: ["campaign-start", businessId, learningId],
+    queryKey: ["campaign-start", businessId, learningId, fromId],
     queryFn: () => {
       const q = new URLSearchParams();
       if (businessId) q.set("business_id", businessId);
       if (learningId) q.set("learning", learningId);
+      if (fromId) q.set("from", fromId);
       const s = q.toString();
       return api.get<CampaignStart>(`/campaigns/start${s ? `?${s}` : ""}`);
     },
@@ -81,14 +90,24 @@ export default function NewCampaign() {
   useEffect(() => {
     const data = start.data;
     if (!data?.business_id) return;
-    const key = `${data.business_id}|${businessId}|${learningId}|${data.region ?? ""}|${data.languages.join(",")}|${data.note ?? ""}`;
+    const key = `${data.business_id}|${businessId}|${learningId}|${fromId}|${data.region ?? ""}|${data.languages.join(",")}|${data.note ?? ""}|${data.offer ?? ""}`;
     if (applied.current === key) return;
     applied.current = key;
     if (!businessId) setBusinessId(data.business_id);
-    if (data.region) setBrief((b) => ({ ...b, region: data.region || undefined }));
+    setBrief((b) => {
+      const next = { ...b };
+      if (data.region) next.region = data.region;
+      if (fromId) {
+        for (const k of FACT_KEYS) {
+          const value = data[k];
+          if (value) next[k] = value;
+        }
+      }
+      return next;
+    });
     if (data.languages.length) setLanguages(data.languages);
     if (data.note) setMessage((m) => m || data.note || "");
-  }, [start.data, businessId, learningId]);
+  }, [start.data, businessId, learningId, fromId]);
 
   const set = (k: keyof Brief) => (v: string) => setBrief((b) => ({ ...b, [k]: v || undefined }));
   const chosen = Object.fromEntries(Object.entries(formats).filter(([, v]) => v.length));

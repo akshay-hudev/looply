@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
 import { api } from "../lib/api";
-import { Asset, Brief, Business, Campaign, LANGUAGES, Learning, Me, Offer, SocialAccount } from "../lib/types";
+import { displayOffer } from "../lib/offer";
+import { Asset, Brief, Business, Campaign, LANGUAGES, Learning, Me, Offer, PLATFORMS, SocialAccount } from "../lib/types";
 import { Badge, Button, Card, DocumentTitle, ErrorNote, focusCls, statusLabel, statusTone } from "../lib/ui";
 
 const WAITING = new Set(["clarifying", "strategy_review", "review"]);
@@ -14,9 +15,9 @@ const PLATFORM_NAME: Record<string, string> = {
 
 function offerLine(brief?: Brief, offer?: Offer): string {
   const typed = brief?.offer?.trim();
-  if (typed) return typed;
+  if (typed) return displayOffer(typed);
   const parts = [offer?.discount, offer?.price].filter(Boolean);
-  if (parts.length) return parts.join(" · ");
+  if (parts.length) return displayOffer(parts.join(" · "));
   return "No price or deal. We won't invent one.";
 }
 function cap(s: string) {
@@ -24,6 +25,11 @@ function cap(s: string) {
 }
 function byCreated(a: Campaign, b: Campaign) {
   return a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
+}
+function byUpdated(a: Campaign, b: Campaign) {
+  const au = a.updated_at || a.created_at;
+  const bu = b.updated_at || b.created_at;
+  return au.localeCompare(bu) || byCreated(a, b);
 }
 function locked(c: Campaign) {
   const brief = c.brain?.brief;
@@ -33,17 +39,16 @@ function locked(c: Campaign) {
 function productOf(c: Campaign) {
   return c.brain?.brief?.product?.trim() || c.brain?.offer?.product || c.title;
 }
-function stepLabel(c: Campaign, shopName: string) {
+function featureCopy(c: Campaign, shopName: string, missingAccount: boolean): { eyebrow: string; step: string } {
   const product = productOf(c);
-  if (c.status === "strategy_review") return `Check the plan for ${shopName}`;
-  if (c.status === "review") return `Approve ${product}`;
-  if (c.status === "clarifying") return `Answer a question about ${product}`;
-  return "";
-}
-function placeOf(c: Campaign, shop?: Business) {
-  const region = c.brain?.brief?.region?.trim();
-  if (region) return region;
-  return [shop?.address, shop?.city].filter(Boolean).join(", ");
+  if (c.status === "strategy_review") return { eyebrow: "Waiting on you", step: `Check the plan for ${shopName}` };
+  if (c.status === "review") return { eyebrow: "Waiting on you", step: `Approve ${product}` };
+  if (c.status === "clarifying") return { eyebrow: "Waiting on you", step: `Answer a question about ${product}` };
+  if (c.status === "generating") return { eyebrow: "In progress", step: `Open ${product}` };
+  if (c.status === "publishing") return { eyebrow: "Publishing", step: `Open ${product}` };
+  if (c.status === "approved") return { eyebrow: missingAccount ? "Needs an account" : "Ready to publish", step: `Open ${product}` };
+  if (c.status === "published") return { eyebrow: "Published", step: `Open ${product}` };
+  return { eyebrow: statusLabel(c.status), step: `Open ${product}` };
 }
 function languagesOf(c: Campaign) {
   return c.brain?.strategy?.languages?.length
@@ -90,15 +95,15 @@ const primaryLink = `inline-flex items-center rounded-lg bg-brand-700 px-4 py-2 
 const ghostLink = `inline-flex items-center rounded-lg border border-slate-500 bg-white px-4 py-2 font-medium text-slate-700 hover:bg-slate-50 ${focusCls}`;
 
 export default function Dashboard() {
-  const campaigns = useQuery({ queryKey: ["campaigns"], queryFn: () => api.get<Campaign[]>("/campaigns") });
+  const campaigns = useQuery({ queryKey: ["campaigns"], queryFn: () => api.get<Campaign[]>("/campaigns"), refetchOnMount: "always" });
   const businesses = useQuery({ queryKey: ["businesses"], queryFn: () => api.get<Business[]>("/businesses") });
   const accounts = useQuery({ queryKey: ["accounts"], queryFn: () => api.get<SocialAccount[]>("/social/accounts") });
   const me = useQuery({ queryKey: ["me"], queryFn: () => api.get<Me>("/auth/me") });
   const rows = campaigns.data ?? [];
   const shops = businesses.data ?? [];
   const names = new Map(shops.map((b) => [b.id, b]));
-  const newest = [...rows].sort((a, b) => -byCreated(a, b))[0];
-  const shop = newest ? names.get(newest.business_id) : shops.length === 1 ? shops[0] : undefined;
+  const latest = [...rows].sort((a, b) => -byUpdated(a, b))[0];
+  const shop = latest ? names.get(latest.business_id) : shops.length === 1 ? shops[0] : undefined;
   const learningCandidate = shop?.learnings?.[shop.learnings.length - 1];
   const learningSource = rows.find((c) => c.id === learningCandidate?.campaign_id);
   const needSimulated = !!learningCandidate?.id && !!learningCandidate.campaign_id
@@ -108,14 +113,9 @@ export default function Dashboard() {
     enabled: needSimulated,
     queryFn: () => api.get<{ rows: { simulated: boolean }[] }>(`/campaigns/${learningCandidate?.campaign_id}/analytics`),
   });
-  const waitingId = [...rows].filter((c) => WAITING.has(c.status)).sort(byCreated)[0]?.id;
   const accountReady = (platform: string, businessId: string) =>
     (accounts.data ?? []).some((a) => a.target_platform === platform && (!a.business_id || a.business_id === businessId));
-  const accountHeroId = waitingId ? undefined : [...rows].filter((c) => c.status === "approved").sort(byCreated).find((c) => {
-    const platforms = c.brain?.strategy?.platforms ?? [];
-    return platforms.some((p) => !accountReady(p, c.business_id));
-  })?.id;
-  const featuredId = waitingId ?? accountHeroId;
+  const featuredId = latest?.id;
   const detail = useQuery({
     queryKey: ["campaign", featuredId],
     enabled: !!featuredId,
@@ -154,22 +154,12 @@ export default function Dashboard() {
     ? `Welcome back, ${me.data.name}`
     : hasCampaigns && shop ? shop.name : "";
 
-  const waiting = rows
-    .filter((c) => WAITING.has(c.status) && stepLabel(c, names.get(c.business_id)?.name || shop?.name || "your shop"))
-    .sort(byCreated);
-  const headline = waiting[0];
-  const headlineShop = headline ? names.get(headline.business_id)?.name || shop?.name || "your shop" : "";
-  const step = headline ? stepLabel(headline, headlineShop) : "";
-
-  const blocked = accountHeroId ? rows.find((c) => c.id === accountHeroId) : undefined;
-  const featuredIdShown = headline?.id ?? blocked?.id;
-  const last = [...rows]
-    .filter((c) => locked(c) && !WAITING.has(c.status) && c.id !== featuredIdShown)
-    .sort((a, b) => -byCreated(a, b))[0];
-  const lastShop = last ? names.get(last.business_id) : undefined;
-  const lastBits = last
-    ? [last.brain?.brief?.offer, ...languagesOf(last).map((l) => LANGUAGES[l] ?? l), placeOf(last, lastShop)].filter((bit): bit is string => !!bit)
-    : [];
+  const waiting = rows.filter((c) => WAITING.has(c.status));
+  const featured = latest;
+  const featuredShop = featured ? names.get(featured.business_id)?.name || shop?.name || "your shop" : "";
+  const missingAccount = !!featured && featured.status === "approved"
+    && (featured.brain?.strategy?.platforms ?? []).some((p) => !accountReady(p, featured.business_id));
+  const feature = featured ? featureCopy(featured, featuredShop, missingAccount) : null;
 
   const readyCount = rows.filter((c) => {
     if (c.status !== "approved") return false;
@@ -185,34 +175,26 @@ export default function Dashboard() {
   ].filter(([n]) => Number(n) > 0).map(([n, one, many]) => `${n} ${Number(n) === 1 ? one : many}`).join(" · ");
 
   const approved = rows.filter((c) => c.status === "approved");
-  let goOut: { text: string; at: Date; id: string; product: string } | null = null;
-  for (const c of approved) {
-    const platforms = c.brain?.strategy?.platforms ?? [];
-    if (!platforms.length || platforms.some((p) => !accountReady(p, c.business_id))) continue;
-    for (const slot of c.brain?.strategy?.posting_schedule ?? []) {
-      if (!platforms.includes(slot.platform)) continue;
-      const when = nextSlot(slot.day, slot.time);
-      if (!when || (goOut && when.at >= goOut.at)) continue;
-      const name = PLATFORM_NAME[slot.platform] ?? cap(slot.platform);
-      goOut = { text: `${productOf(c)} · ${name} · ${when.label}`, at: when.at, id: c.id, product: productOf(c) };
-    }
-  }
-  const slot = headline ? null : goOut
-    ? { kind: "time" as const, text: goOut.text, id: goOut.id, product: goOut.product }
-    : accountNote(approved, accountReady, names);
-
+  const heroWhen = featured && featured.status === "approved" ? soonestPost([featured], accountReady) : null;
+  const otherWhen = soonestPost(approved.filter((c) => c.id !== featured?.id), accountReady);
+  const pastOffers = [...rows]
+    .filter((c) => shop && c.business_id === shop.id && locked(c) && !WAITING.has(c.status) && c.id !== featured?.id && offerLabel(c))
+    .sort((a, b) => -byUpdated(a, b))
+    .slice(0, 3);
   const learning = pickLearning(shop, rows);
-  const nextIsHero = !headline && slot?.kind !== "time" && slot?.kind !== "account" && !!last && !!lastShop;
-  const recent = [...rows].sort((a, b) => -byCreated(a, b)).slice(0, 3);
+  const quiet = [
+    pastOffers.length > 0 && shop ? "offers" as const : null,
+    learning ? "learning" as const : null,
+    otherWhen ? "when" as const : null,
+  ].filter((item): item is "offers" | "learning" | "when" => !!item).slice(0, 3);
+  const recent = [...rows].sort((a, b) => -byUpdated(a, b)).slice(0, 3);
   const invite = shops.length === 0
     ? "Add your business first. Then describe one promotion and LocalMind drafts it in your customers' language."
     : shops.length === 1
       ? `Describe a promotion for ${shops[0].name}. LocalMind will draft it in the languages you pick.`
       : "No campaigns yet. Describe one promotion and LocalMind drafts it in your customers' language.";
 
-  const hero = (headline && step) || slot?.kind === "account" || slot?.kind === "time" || nextIsHero || !hasCampaigns;
-  const showNextAside = !!last && !!lastShop && !nextIsHero;
-  const aside = showNextAside || !!learning;
+  const hero = !!featured || !hasCampaigns;
 
   return (
     <div className="space-y-6">
@@ -225,61 +207,70 @@ export default function Dashboard() {
           {countLine && <p className="mt-2 text-sm text-slate-600">{countLine}</p>}
         </div>
         <div className="flex flex-wrap gap-2">
-          {step && headline
-            ? <Link className={primaryLink} to={`/campaigns/${headline.id}`}>{step}</Link>
-            : slot?.kind === "account"
-              ? <Link className={primaryLink} to="/accounts">{slot.action}</Link>
+          {feature && featured
+            ? <Link className={primaryLink} to={`/campaigns/${featured.id}`}>{feature.step}</Link>
             : shops.length === 0
               ? <Link className={primaryLink} to="/businesses/new">Add a business</Link>
               : <Link className={primaryLink} to="/campaigns/new">New campaign</Link>}
-          {(step || slot?.kind === "account") && shops.length > 0 && <Link className={ghostLink} to="/campaigns/new">New campaign</Link>}
+          {feature && shops.length > 0 && <Link className={ghostLink} to="/campaigns/new">New campaign</Link>}
         </div>
       </div>
 
-      {(hero || aside) && (
-        <div className={aside && hero ? "grid items-start gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(16rem,1fr)]" : "grid gap-4"}>
-          {headline && step && (
+      {hero && (
+        <div>
+          {featured && feature && (
             <WaitingCard
-              campaign={detail.data ?? headline}
-              shopName={headlineShop}
-              step={step}
-              href={`/campaigns/${headline.id}`}
-              connected={(platform) => accountReady(platform, headline.business_id)}
+              campaign={detail.data?.id === featured.id ? detail.data : featured}
+              shopName={featuredShop}
+              step={feature.step}
+              href={`/campaigns/${featured.id}`}
+              eyebrow={feature.eyebrow}
+              goesOut={heroWhen ? `${heroWhen.channel} · ${heroWhen.label}` : undefined}
+              connected={(platform) => accountReady(platform, featured.business_id)}
             />
           )}
-          {!headline && slot?.kind === "account" && blocked && (
-            <WaitingCard
-              campaign={detail.data ?? blocked}
-              shopName={names.get(blocked.business_id)?.name || shop?.name || "your shop"}
-              step={slot.action}
-              href="/accounts"
-              eyebrow="Needs an account"
-              connected={(platform) => accountReady(platform, blocked.business_id)}
-            />
-          )}
-          {slot?.kind === "time" && (
-            <Link to={`/campaigns/${slot.id}`} className={`block rounded-xl border border-slate-200 bg-white p-5 shadow-sm hover:border-brand-500 ${focusCls}`}>
-              <p className="text-sm text-slate-600">Goes out</p>
-              <p className="text-xl font-semibold">{slot.text}</p>
-              <p className="mt-4 text-sm font-medium text-brand-700">Next: Open {slot.product} →</p>
-            </Link>
-          )}
-          {nextIsHero && last && lastShop && <NextCampaign shopName={lastShop.name} bits={lastBits} />}
           {!hasCampaigns && <p className="text-sm text-slate-600">{invite}</p>}
-          {aside && (
-            <div className="space-y-4">
-              {showNextAside && last && lastShop && <NextCampaign shopName={lastShop.name} bits={lastBits} />}
-              {learning && (
-                <Link to={`/campaigns/new?learning=${learning.id}`} className={`block rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:border-brand-500 ${focusCls}`}>
+        </div>
+      )}
+
+      {quiet.length > 0 && (
+        <div className="flex flex-wrap gap-4">
+          {quiet.map((kind) => {
+            if (kind === "offers" && shop) {
+              return (
+                <div key="offers" className="min-w-[16rem] flex-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <p className="font-semibold">Another promotion for {shop.name}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {pastOffers.map((c) => (
+                      <Link key={c.id} to={`/campaigns/new?from=${c.id}`} className={`rounded-full ${focusCls}`}>
+                        <Badge>{offerLabel(c)}</Badge>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              );
+            }
+            if (kind === "learning" && learning) {
+              return (
+                <Link key="learning" to={`/campaigns/new?learning=${learning.id}`} className={`block min-w-[16rem] flex-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:border-brand-500 ${focusCls}`}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-sm font-medium">Use this next time</p>
                     {learning.simulated && <Badge tone="amber">Simulated</Badge>}
                   </div>
                   <p className="mt-2 text-sm text-slate-600">{learning.recommendation || learning.insight}</p>
                 </Link>
-              )}
-            </div>
-          )}
+              );
+            }
+            if (kind === "when" && otherWhen) {
+              return (
+                <Link key="when" to={`/campaigns/${otherWhen.id}`} className={`block min-w-[16rem] flex-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:border-brand-500 ${focusCls}`}>
+                  <p className="text-sm font-medium">When it goes out</p>
+                  <p className="mt-2 text-sm text-slate-600">{otherWhen.product} · {otherWhen.channel} · {otherWhen.label}</p>
+                </Link>
+              );
+            }
+            return null;
+          })}
         </div>
       )}
 
@@ -317,19 +308,6 @@ export default function Dashboard() {
   );
 }
 
-function NextCampaign({ shopName, bits }: { shopName: string; bits: string[] }) {
-  return (
-    <Link to="/campaigns/new" className={`block rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:border-brand-500 ${focusCls}`}>
-      <p className="font-semibold">Another promotion for {shopName}</p>
-      {bits.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {bits.map((bit) => <Badge key={bit}>{bit}</Badge>)}
-        </div>
-      )}
-    </Link>
-  );
-}
-
 const JOURNEY = ["Plan", "Your posts", "Approve", "Publish"];
 
 function journeyIndex(status: string) {
@@ -347,11 +325,32 @@ function formatWhen(raw?: string | null) {
   return new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", month: "short" }).format(at);
 }
 
+function offerLabel(c: Campaign): string {
+  return displayOffer(c.brain?.brief?.offer?.trim() || c.brain?.offer?.discount?.trim() || c.brain?.offer?.price?.trim() || "");
+}
+
+function soonestPost(campaigns: Campaign[], ready: (platform: string, businessId: string) => boolean) {
+  let best: { at: Date; id: string; product: string; channel: string; label: string } | null = null;
+  for (const c of campaigns) {
+    const platforms = c.brain?.strategy?.platforms ?? [];
+    for (const slot of c.brain?.strategy?.posting_schedule ?? []) {
+      if (!platforms.includes(slot.platform) || !ready(slot.platform, c.business_id)) continue;
+      const when = nextSlot(slot.day, slot.time);
+      if (!when || (best && when.at >= best.at)) continue;
+      best = {
+        at: when.at, id: c.id, product: productOf(c),
+        channel: PLATFORM_NAME[slot.platform] ?? cap(slot.platform), label: when.label,
+      };
+    }
+  }
+  return best;
+}
+
 function offerParts(c: Campaign) {
   const offer = c.brain?.offer;
   const brief = c.brain?.brief;
-  const typed = brief?.offer?.trim() || "";
-  const figure = offer?.discount?.trim() || offer?.price?.trim() || typed;
+  const typed = displayOffer(brief?.offer?.trim() || "");
+  const figure = displayOffer(offer?.discount?.trim() || offer?.price?.trim() || typed);
   if (!figure) return null;
   let condition = "";
   if (typed && typed !== figure) condition = typed.replace(figure, "").replace(/^[\s,·\-–]+/, "").trim();
@@ -362,8 +361,9 @@ function offerParts(c: Campaign) {
   return { figure, condition, dates };
 }
 
-function cellFor(platform: string, language: string, campaign: Campaign, assets: Asset[] | undefined, isConnected: boolean) {
+function cellFor(platform: string, language: string, campaign: Campaign, assets: Asset[] | undefined, isConnected: boolean, used: boolean) {
   if (!isConnected) return { word: "Not connected", tone: "amber" as const, mark: "miss" as const };
+  if (!used) return { word: "Connected", tone: "green" as const, mark: "on" as const };
   const mine = (assets ?? []).filter((a) => a.platform === platform && a.language === language && a.is_selected);
   if (mine.some((a) => a.status === "failed" || a.verification?.status === "failed")) return { word: "Failed", tone: "red" as const, mark: "fail" as const };
   if (mine.some((a) => ["verified", "approved"].includes(a.status) || a.verification?.status === "verified")) return { word: "Ready", tone: "green" as const, mark: "ready" as const };
@@ -373,7 +373,14 @@ function cellFor(platform: string, language: string, campaign: Campaign, assets:
   return { word: "Needs a plan", tone: "blue" as const, mark: "wait" as const };
 }
 
-function Mark({ kind }: { kind: "ready" | "wait" | "fail" | "miss" }) {
+function Mark({ kind }: { kind: "ready" | "wait" | "fail" | "miss" | "on" }) {
+  if (kind === "on") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 10 10" className="h-3 w-3 shrink-0">
+        <circle cx="5" cy="5" r="2.2" fill="currentColor" />
+      </svg>
+    );
+  }
   const d = {
     ready: "M1.5 5.2 3.4 7.1 8.5 2.2",
     fail: "M2 2 l6 6 M8 2 l-6 6",
@@ -387,108 +394,157 @@ function Mark({ kind }: { kind: "ready" | "wait" | "fail" | "miss" }) {
   );
 }
 
-function WaitingCard({ campaign, shopName, step, href, eyebrow = "Waiting on you", connected }: {
-  campaign: Campaign; shopName: string; step: string; href: string; eyebrow?: string; connected: (platform: string) => boolean;
+const NATIVE: Record<string, string> = {
+  en: "EN", hi: "हिन्दी", kn: "ಕನ್ನಡ", ta: "தமிழ்", te: "తెలుగు", mr: "मराठी", bn: "বাংলা",
+  ml: "മലയാളം", gu: "ગુજરાતી", pa: "ਪੰਜਾਬੀ", ur: "اردو", es: "ES", fr: "FR", ar: "العربية", pt: "PT", id: "ID",
+};
+
+function shortLang(code: string) {
+  return NATIVE[code] ?? LANGUAGES[code] ?? code;
+}
+
+function WaitingCard({ campaign, shopName, step, href, eyebrow = "Waiting on you", goesOut, connected }: {
+  campaign: Campaign; shopName: string; step: string; href: string; eyebrow?: string; goesOut?: string;
+  connected: (platform: string) => boolean;
 }) {
-  const platforms = campaign.brain?.strategy?.platforms ?? [];
+  const used = new Set(campaign.brain?.strategy?.platforms ?? []);
+  const platforms = [...PLATFORMS];
   const languages = languagesOf(campaign);
   const offer = offerParts(campaign);
   const stage = journeyIndex(campaign.status);
   const posters = (campaign.assets ?? []).filter((a) => a.is_selected && a.media_url).slice(0, 4);
-  const cells = platforms.flatMap((p) => languages.map((l) => ({ p, l, ...cellFor(p, l, campaign, campaign.assets, connected(p)) })));
-  const summary = platforms.map((p) => {
-    const words = [...new Set(cells.filter((c) => c.p === p).map((c) => c.word))];
-    const name = PLATFORM_NAME[p] ?? cap(p);
-    if (words.length === 1 && words[0] === "Not connected") return `${name} isn't connected yet`;
-    if (words.length === 1 && words[0] === "Ready") return `${name} is ready`;
-    if (words.length === 1) return `${name} ${words[0].charAt(0).toLowerCase()}${words[0].slice(1)}`;
-    return `${name}: ${words.join(", ")}`;
-  }).join(". ");
+  const heroPoster = posters[0];
+  const posterLangs = [...new Set(posters.map((a) => a.language))];
+  const cells = platforms.flatMap((p) => languages.map((l) => ({ p, l, ...cellFor(p, l, campaign, campaign.assets, connected(p), used.has(p)) })));
+  const columns = `minmax(9rem, auto) repeat(${Math.max(languages.length, 1)}, 2.5rem)`;
 
   return (
     <Link to={href} className={`block rounded-xl border border-slate-200 bg-white p-5 shadow-sm hover:border-brand-500 ${focusCls}`}>
-      <p className="text-sm text-slate-600">{eyebrow}</p>
-      <p className="text-xl font-semibold">{campaign.title} <span className="font-normal text-slate-600">· {shopName}</span></p>
-      {posters.length > 0 && (
-        <div className="mt-3 flex gap-2">
-          {posters.map((a) => (
-            <img key={a.id} src={a.media_url!} alt={`${PLATFORM_NAME[a.platform] ?? cap(a.platform)}, ${LANGUAGES[a.language] ?? a.language}`} className="h-16 w-16 rounded-xl bg-slate-100 object-cover" />
-          ))}
-        </div>
-      )}
-      <div className="mt-4 flex flex-wrap items-start gap-6">
-        {offer && (
-          <div className="rounded-xl bg-slate-100 p-4">
-            <p className={offer.figure.length > 12 ? "text-lg font-semibold text-slate-900" : "text-3xl font-semibold text-slate-900"}>{offer.figure}</p>
-            {offer.condition && <p className="mt-1 text-sm text-slate-600">{offer.condition}</p>}
-            {offer.dates && <div className="mt-3"><Badge>{offer.dates}</Badge></div>}
-          </div>
-        )}
-        {platforms.length > 0 && languages.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="border-separate border-spacing-x-2 border-spacing-y-2 text-sm">
-              <caption className="sr-only">Status of each language on each platform</caption>
-              <thead>
-                <tr>
-                  <th />
-                  {languages.map((l) => <th key={l} scope="col" className="px-1 text-xs font-medium text-slate-600">{LANGUAGES[l] ?? l}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {platforms.map((p) => (
-                  <tr key={p}>
-                    <th scope="row" className="pr-2 text-left text-sm font-medium text-slate-900">{PLATFORM_NAME[p] ?? cap(p)}</th>
+      <div className={heroPoster ? "grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_16rem]" : ""}>
+        <div>
+          <p className="flex items-center gap-2 text-sm text-slate-600">
+            {eyebrow === "Needs an account" && <span aria-hidden="true" className="h-2 w-2 rounded-full bg-amber-500" />}
+            {eyebrow}
+          </p>
+          <p className="text-2xl font-semibold">{campaign.title} <span className="font-normal text-slate-600">· {shopName}</span></p>
+          {offer && <OfferStrip figure={offer.figure} condition={offer.condition} dates={offer.dates} />}
+          {platforms.length > 0 && languages.length > 0 && (
+            <div className="mt-5 grid items-center gap-x-3 gap-y-2" style={{ gridTemplateColumns: columns }}>
+              <span />
+              {languages.map((l) => (
+                <span key={l} className="text-center text-xs text-slate-600">{shortLang(l)}</span>
+              ))}
+              {platforms.map((p) => {
+                const name = PLATFORM_NAME[p] ?? cap(p);
+                const missed = languages.every((l) => cells.find((c) => c.p === p && c.l === l)?.word === "Not connected");
+                return (
+                  <div key={p} className={`col-span-full grid items-center gap-x-3 rounded-xl px-3 py-2 ${missed ? "bg-amber-50" : "bg-slate-100"}`} style={{ gridTemplateColumns: columns }}>
+                    <span className="flex items-center gap-2 text-sm font-medium text-slate-900">
+                      <PlatformGlyph platform={p} />
+                      {name}
+                    </span>
                     {languages.map((l) => {
                       const cell = cells.find((c) => c.p === p && c.l === l)!;
-                      return (
-                        <td key={l}>
-                          <Badge tone={cell.tone}>
-                            <span className="inline-flex items-center gap-1"><Mark kind={cell.mark} />{cell.word}</span>
-                          </Badge>
-                        </td>
-                      );
+                      return <StatusMark key={l} kind={cell.mark} label={`${name}, ${LANGUAGES[l] ?? l}, ${cell.word}`} />;
                     })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <ol aria-label={`Step ${stage + 1} of ${JOURNEY.length}: ${JOURNEY[stage]}`} className="mt-5">
+            <div aria-hidden="true" className="flex gap-1">
+              {JOURNEY.map((label, i) => (
+                <span key={label} className={`h-1.5 flex-1 rounded-full ${i < stage ? "bg-emerald-500" : i === stage ? "bg-brand-700" : "bg-slate-300 dark:bg-slate-600"}`} />
+              ))}
+            </div>
+            <div className="mt-2 flex gap-1">
+              {JOURNEY.map((label, i) => (
+                <span key={label} className={`flex-1 text-xs ${i === stage ? "font-semibold text-brand-700" : i < stage ? "text-emerald-800" : "text-slate-500"}`}>
+                  {i < stage ? "✓ " : i === stage ? `${i + 1} ` : ""}{label}
+                </span>
+              ))}
+            </div>
+          </ol>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-3">
+            {goesOut
+              ? <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700"><ClockIcon />{goesOut}</span>
+              : <span />}
+            <p className="text-sm font-semibold text-brand-700">{step} →</p>
+          </div>
+        </div>
+        {heroPoster && (
+          <div>
+            <img src={heroPoster.media_url!} alt={`${PLATFORM_NAME[heroPoster.platform] ?? cap(heroPoster.platform)}, ${LANGUAGES[heroPoster.language] ?? heroPoster.language}`} className="aspect-[3/4] w-full rounded-xl bg-slate-100 object-cover" />
+            {posterLangs.length > 0 && (
+              <div className="mt-3 flex flex-wrap justify-center gap-2">
+                {posterLangs.map((l) => <span key={l} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">{LANGUAGES[l] ?? l}</span>)}
+              </div>
+            )}
           </div>
         )}
-      </div>
-      <ol aria-label={`Step ${stage + 1} of ${JOURNEY.length}: ${JOURNEY[stage]}`} className="mt-5 flex flex-wrap items-center gap-2">
-        {JOURNEY.map((label, i) => (
-          <li key={label} className="flex items-center gap-2">
-            {i > 0 && <span aria-hidden="true" className="hidden h-px w-6 bg-slate-200 sm:block" />}
-            <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs ${i === stage ? "bg-brand-700 text-white" : i < stage ? "bg-brand-100 text-brand-700" : "bg-slate-100 text-slate-600"}`}>
-              <span aria-hidden="true">{i < stage ? "✓" : i + 1}</span>{label}
-            </span>
-          </li>
-        ))}
-      </ol>
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-3">
-        {summary && <p className="text-sm text-slate-600">{summary}.</p>}
-        <p className="text-sm font-medium text-brand-700">Next: {step} →</p>
       </div>
     </Link>
   );
 }
 
-function accountNote(
-  approved: Campaign[],
-  connected: (platform: string, businessId: string) => boolean,
-  names: Map<string, Business>,
-): { kind: "account"; text: string; action: string } | null {
-  const blocked = approved
-    .map((c) => ({ c, missing: (c.brain?.strategy?.platforms ?? []).filter((p) => !connected(p, c.business_id)) }))
-    .filter((x) => x.missing.length)
-    .sort((a, b) => byCreated(a.c, b.c));
-  const first = blocked[0];
-  if (!first) return null;
-  const labels = first.missing.map((p) => PLATFORM_NAME[p] ?? cap(p));
-  const list = labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
-  const shop = names.get(first.c.business_id)?.name;
-  const action = labels.length === 1 ? `Connect ${labels[0]}` : "Connect accounts";
-  return { kind: "account", action, text: `Connect ${list} before ${productOf(first.c)}${shop ? ` for ${shop}` : ""} can go out.` };
+function OfferStrip({ figure, condition, dates }: { figure: string; condition: string; dates: string }) {
+  const percent = figure.match(/^(\d{1,3}(?:\.\d+)?)%$/);
+  const conditionText = percent ? condition.replace(/^off\b[\s,·\-–]*/i, "").trim() : condition;
+  return (
+    <div className="mt-4 inline-flex max-w-full flex-wrap items-center gap-x-8 gap-y-2 rounded-xl bg-slate-100 px-4 py-3">
+      <p className={percent ? "inline-flex items-baseline gap-2" : figure.length > 12 ? "text-lg font-semibold text-slate-900" : "text-3xl font-semibold text-slate-900"}>
+        {percent
+          ? <><span className="text-4xl font-semibold text-brand-700">{percent[1]}%</span><span className="text-sm font-medium text-slate-600">off</span></>
+          : figure}
+      </p>
+      {conditionText && <p className="text-sm font-medium text-slate-900">{conditionText}</p>}
+      {dates && (
+        <p className="text-sm text-slate-600">
+          <span className="block text-xs">On</span>
+          <span className="font-medium text-slate-900">{dates}</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
+function StatusMark({ kind, label }: { kind: "ready" | "wait" | "fail" | "miss" | "on"; label: string }) {
+  const tone = {
+    ready: "bg-emerald-600 text-white",
+    on: "bg-emerald-700 text-white",
+    miss: "bg-amber-600 text-white",
+    fail: "bg-red-600 text-white",
+    wait: "bg-sky-700 text-white",
+  }[kind];
+  return (
+    <span role="img" title={label} aria-label={label} className={`mx-auto flex h-7 w-7 items-center justify-center rounded-full ${tone}`}>
+      <Mark kind={kind} />
+    </span>
+  );
+}
+
+function PlatformGlyph({ platform }: { platform: string }) {
+  const paths: Record<string, string> = {
+    instagram: "M4 2.5h8A1.5 1.5 0 0 1 13.5 4v8a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V4A1.5 1.5 0 0 1 4 2.5z M8 5.2a2.8 2.8 0 1 1 0 5.6 2.8 2.8 0 0 1 0-5.6z M11.6 4.5h.1",
+    whatsapp: "M8 2.2a5.8 5.8 0 0 0-5 8.7L2.2 13.8l3-0.8A5.8 5.8 0 1 0 8 2.2z",
+    facebook: "M9 13.5V8.6h1.6l.3-1.8H9V5.7c0-.5.2-.9.9-.9H11V3.1C10.8 3.1 10.2 3 9.5 3 8 3 7 3.9 7 5.5v1.3H5.4v1.8H7v4.9H9z",
+    linkedin: "M3.2 6.2h2.1V13H3.2z M4.2 3.1a1.2 1.2 0 1 1 0 2.4 1.2 1.2 0 0 1 0-2.4z M6.8 6.2H8.8v.9c.3-.5.9-1 2-1 1.8 0 2.4 1.1 2.4 2.8V13H11.2V9.2c0-.8-.3-1.4-1.1-1.4s-1.2.6-1.2 1.5V13H6.8V6.2z",
+  };
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" className="h-4 w-4 shrink-0">
+      <path d={paths[platform] ?? "M8 2.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11z"} fill="none" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
+function ClockIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" className="h-3.5 w-3.5">
+      <circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M8 5v3.2l2 1.2" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
 }
 
 function pickLearning(shop: Business | undefined, rows: Campaign[]): Learning | null {

@@ -141,6 +141,17 @@ export interface Campaign {
   assets?: Asset[];
   summary?: Summary;
   created_at: string;
+  updated_at?: string;
+  row?: CampaignListRow;
+}
+
+export interface CampaignListRow {
+  poster_url: string | null;
+  stale_count: number;
+  published_at: string | null;
+  next_at: string | null;
+  platforms: { platform: string; state: string }[];
+  failed_job_ids: string[];
 }
 
 export interface AgentEvent {

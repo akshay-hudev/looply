@@ -32,3 +32,10 @@ def test_start_uses_last_locked_campaign(client):
     assert body["region"] == saved["brain"]["brief"]["region"]
     assert body["languages"] == saved["brain"]["strategy"]["languages"]
     assert body["note"] is None
+    assert body["offer"] is None
+    again = client.get(f"/api/campaigns/start?from={created.json()['id']}", headers=auth)
+    assert again.status_code == 200, again.text
+    facts = again.json()
+    assert facts["offer"] == saved["brain"]["brief"].get("offer")
+    assert facts["product"] == saved["brain"]["brief"].get("product")
+    assert facts["region"] == saved["brain"]["brief"]["region"]

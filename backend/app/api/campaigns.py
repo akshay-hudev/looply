@@ -16,7 +16,7 @@ from app.core.security import decode_access_token
 from app.core.tenancy import OrgContext, get_org_context, get_owned
 from app.graph.context import PipelineContext
 from app.graph.state import FORMAT_CATALOG, CampaignBrain, CampaignBrief, OfferFacts
-from app.models import AgentEvent, Asset, Business, Campaign, CampaignVersion, Membership
+from app.models import AgentEvent, Asset, Business, Campaign, CampaignVersion, Membership, PublishJob
 from app.services.jobs import dispatch
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
@@ -138,7 +138,70 @@ def list_campaigns(status_filter: str | None = Query(None, alias="status"), busi
         q = q.where(Campaign.status.in_(status_filter.split(",")))
     if business_id:
         q = q.where(Campaign.business_id == business_id)
-    return [campaign_out(c) for c in ctx.db.scalars(q.order_by(Campaign.created_at.desc()))]
+    rows = list(ctx.db.scalars(q.order_by(Campaign.created_at.desc())))
+    extra = _list_rows(ctx, rows)
+    return [{**campaign_out(c), "row": extra[c.id]} for c in rows]
+
+
+def _aware(dt: datetime | None) -> datetime | None:
+    return dt.replace(tzinfo=timezone.utc) if dt and dt.tzinfo is None else dt
+
+
+def _job_state(status: str) -> str:
+    if status == "failed":
+        return "failed"
+    if status in ("publishing", "queued"):
+        return "sending"
+    if status == "scheduled":
+        return "scheduled"
+    if status == "published":
+        return "done"
+    return status
+
+
+def _list_rows(ctx, campaigns: list[Campaign]) -> dict[str, dict]:
+    """Poster, publish progress, and stale count for the campaign list. One query each, not per row."""
+    if not campaigns:
+        return {}
+    ids = [c.id for c in campaigns]
+    assets = list(ctx.db.scalars(select(Asset).where(Asset.campaign_id.in_(ids), Asset.is_selected.is_(True))))
+    jobs = list(ctx.db.scalars(select(PublishJob).where(PublishJob.campaign_id.in_(ids))))
+    now = datetime.now(timezone.utc)
+    rank = {"failed": 4, "publishing": 3, "queued": 3, "scheduled": 2, "published": 1}
+    out: dict[str, dict] = {}
+    for c in campaigns:
+        mine = [a for a in assets if a.campaign_id == c.id]
+        poster = next((a.media_url for a in mine if a.media_url and a.status == "approved"), None)
+        if not poster:
+            poster = next((a.media_url for a in mine if a.media_url), None)
+        stale = sum(1 for a in mine if a.status == "stale")
+        mine_jobs = [j for j in jobs if j.campaign_id == c.id]
+        by_platform: dict[str, tuple[int, str]] = {}
+        published_at = None
+        next_at = None
+        failed_ids = []
+        for j in mine_jobs:
+            score = rank.get(j.status, 0)
+            prev = by_platform.get(j.platform)
+            if not prev or score > prev[0]:
+                by_platform[j.platform] = (score, _job_state(j.status))
+            if j.status == "failed":
+                failed_ids.append(j.id)
+            done = _aware(j.published_at)
+            if done and (published_at is None or done > published_at):
+                published_at = done
+            when = _aware(j.scheduled_at)
+            if j.status == "scheduled" and when and when > now and (next_at is None or when < next_at):
+                next_at = when
+        out[c.id] = {
+            "poster_url": poster,
+            "stale_count": stale,
+            "published_at": published_at.isoformat() if published_at else None,
+            "next_at": next_at.isoformat() if next_at else None,
+            "platforms": [{"platform": p, "state": state} for p, (_, state) in by_platform.items()],
+            "failed_job_ids": failed_ids,
+        }
+    return out
 
 
 WAITING = {"clarifying", "strategy_review", "review"}
@@ -150,20 +213,32 @@ def _locked(brain: dict) -> bool:
     return any(brief.get(k) for k in ("product", "offer", "region", "audience")) or bool(strategy.get("languages"))
 
 
+_BRIEF_KEYS = ("product", "offer", "audience", "goal", "occasion", "event_date", "tone", "highlights")
+
+
 @router.get("/start")
 def campaign_start(business_id: str | None = None, learning: str | None = None,
+                   source: str | None = Query(None, alias="from"),
                    ctx: OrgContext = Depends(get_org_context)):
-    """Place and languages for the next campaign, from the shop's last locked campaign. Not from the URL."""
+    """Place and languages for the next campaign, from the shop's last locked campaign. Not from the URL.
+
+    `from` names one past campaign. Its saved facts are returned so the form can start from that offer.
+    """
     campaigns = list(ctx.db.scalars(
         select(Campaign).where(Campaign.org_id == ctx.org_id)
         .order_by(Campaign.created_at.desc(), Campaign.id.desc())))
+    chosen = next((c for c in campaigns if source and c.id == source), None)
+    if chosen and (chosen.status in WAITING or not _locked(chosen.brain or {})):
+        chosen = None
     last_used = campaigns[0].business_id if campaigns else None
-    biz_id = business_id or last_used
+    biz_id = chosen.business_id if chosen else (business_id or last_used)
+    empty = {"business_id": None, "region": None, "languages": [], "note": None,
+             **{k: None for k in _BRIEF_KEYS}}
     if not biz_id:
-        return {"business_id": None, "region": None, "languages": [], "note": None}
+        return empty
     biz = get_owned(ctx, Business, biz_id)
     ensure_learning_ids(ctx, biz)
-    prior = next((c for c in campaigns if c.business_id == biz_id and c.status not in WAITING and _locked(c.brain or {})), None)
+    prior = chosen or next((c for c in campaigns if c.business_id == biz_id and c.status not in WAITING and _locked(c.brain or {})), None)
     brain = (prior.brain if prior else {}) or {}
     brief = brain.get("brief") or {}
     strategy = brain.get("strategy") or {}
@@ -174,7 +249,10 @@ def campaign_start(business_id: str | None = None, learning: str | None = None,
         match = next((l for l in (biz.learnings or []) if isinstance(l, dict) and l.get("id") == learning), None)
         if match and match.get("recommendation"):
             note = match["recommendation"]
-    return {"business_id": biz.id, "region": region or None, "languages": languages, "note": note}
+    facts = {k: None for k in _BRIEF_KEYS}
+    if chosen and prior is chosen:
+        facts = {k: (str(brief.get(k)).strip() or None) if brief.get(k) else None for k in _BRIEF_KEYS}
+    return {"business_id": biz.id, "region": region or None, "languages": languages, "note": note, **facts}
 
 
 @router.get("/{campaign_id}")
