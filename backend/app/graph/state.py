@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-Platform = Literal["instagram", "whatsapp", "linkedin", "facebook"]
+Platform = Literal["instagram", "whatsapp", "linkedin", "facebook", "youtube", "x"]
 
 # platform -> format -> asset kind. Content Director and Strategy may only pick from here.
 FORMAT_CATALOG: dict[str, dict[str, str]] = {
@@ -12,6 +12,8 @@ FORMAT_CATALOG: dict[str, dict[str, str]] = {
     "whatsapp": {"message": "text", "offer_card": "image"},
     "linkedin": {"post": "text"},
     "facebook": {"post": "image"},
+    "youtube": {"post": "image", "short": "video"},
+    "x": {"post": "image"},
 }
 
 LANGUAGE_NAMES = {
@@ -126,6 +128,17 @@ class CreativeBrief(BaseModel):
     hook_direction: str = ""
     visual_direction: str = ""
     key_points: list[str] = Field(default_factory=list)
+    template_id: str = ""
+
+
+class OwnerFile(BaseModel):
+    """A file the owner attached to the brief: logo, sample poster, note, or voice recording."""
+
+    url: str = Field(max_length=500)
+    filename: str = Field(max_length=200)
+    kind: Literal["image", "text", "audio", "file"]
+    role: Literal["logo", "sample", "note", "voice", "file"] = "file"
+    text: str | None = Field(default=None, max_length=8000)
 
 
 class CampaignBrief(BaseModel):
@@ -156,6 +169,7 @@ class CampaignBrain(BaseModel):
     version: int = 1
     raw_inputs: list[str] = Field(default_factory=list)
     brief: CampaignBrief = Field(default_factory=CampaignBrief)
+    files: list[OwnerFile] = Field(default_factory=list)
     input_language: str | None = None
     business: BusinessProfile = Field(default_factory=BusinessProfile)
     objective: str | None = None

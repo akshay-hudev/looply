@@ -39,6 +39,10 @@ def creative_context(ctx: PipelineContext) -> dict:
         "audience_hint": known["audience"],
         "occasion": brief.get("occasion"),
         "input_richness": "sparse" if richness <= 3 else "rich",
+        "owner_files": [
+            {"filename": f.filename, "kind": f.kind, "role": f.role, "text": (f.text or "")[:2000]}
+            for f in brain.files
+        ],
     }
 
 

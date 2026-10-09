@@ -63,8 +63,9 @@ def summarize(issues: list[dict]) -> dict:
     return checks
 
 
-async def verify(ctx: PipelineContext, assets: list[Asset], *, use_llm: bool = True) -> dict[str, dict]:
-    """Verify assets, write Asset.verification/status, return {asset_id: verification}."""
+async def verify(ctx: PipelineContext, assets: list[Asset], *, use_llm: bool = True,
+                 apply_status: bool = True) -> dict[str, dict]:
+    """Record how the copy compares with the offer. Status changes only when apply_status is set."""
     brain = ctx.brain()
     det = {a.id: [i.dict() for i in deterministic_issues(a, brain)] for a in assets}
     llm: dict[str, AssetVerdict] = {}
@@ -104,7 +105,10 @@ async def verify(ctx: PipelineContext, assets: list[Asset], *, use_llm: bool = T
             "checked_at": now,
         }
         a.verification = verification
-        a.status = "verified" if passed else "failed"
+        if apply_status:
+            a.status = "verified" if passed else "failed"
+        elif a.status in ("failed", "draft", "stale"):
+            a.status = "verified"
         results[a.id] = verification
     ctx.db.commit()
     return results

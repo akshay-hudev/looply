@@ -9,7 +9,8 @@ from app.validators.localization_validator import normalize
 PERCENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
 RUPEE_RE = re.compile(r"₹\s*(\d+(?:\.\d+)?)")
 TIME_RE = re.compile(r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)", re.IGNORECASE)
-DMY_RE = re.compile(r"(?<![₹\d.])\b(\d{1,2})[/\-.](\d{1,2})(?:[/\-.](\d{2,4}))?\b(?!\s*%)")
+DMY_RE = re.compile(r"(?<![\d./\-])(\d{1,2})[/\-.](\d{1,2})(?:[/\-.](\d{2,4}))?\b(?!\s*%)")
+ISO_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 MONTHS = {m: i + 1 for i, m in enumerate(
     ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"])}
 DAY_MONTH_RE = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*", re.IGNORECASE)
@@ -86,6 +87,10 @@ def _dates(text: str) -> set[tuple[int, int]]:
     for mon, d in MONTH_DAY_RE.findall(text):
         out.add((int(d), MONTHS[mon[:3].lower()]))
     for d, m, _ in DMY_RE.findall(text):
+        day, month = int(d), int(m)
+        if 1 <= day <= 31 and 1 <= month <= 12:
+            out.add((day, month))
+    for _, m, d in ISO_RE.findall(text):
         day, month = int(d), int(m)
         if 1 <= day <= 31 and 1 <= month <= 12:
             out.add((day, month))

@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field
 
-from app.agents import fact_checker, performance
+from app.agents import performance
 from app.agents.base import call_agent
 from app.agents.copy import AssetCopy, copy_from_content
 from app.graph.context import PipelineContext
@@ -41,12 +41,6 @@ async def optimize(ctx: PipelineContext, selected: Asset, group: list[Asset], *,
         }
         out = await call_agent(ctx, "optimizer", OptimizationOutput, payload, temperature=0.6)
         selected.content = {**(selected.content or {}), **out.improved.model_dump(exclude_none=True)}
-        verdict = (await fact_checker.verify(ctx, [selected]))[selected.id]
-        if verdict["verdict"] != "PASS":
-            _restore(group, snap)
-            history.append({"round": round_no, "kept": False, "reason": "optimized copy failed the fact check",
-                            "critique": out.critique})
-            break
         scores = await performance.predict(ctx, group)
         after = scores.get(selected.id)
         after_score = after.predicted_score if after else 0

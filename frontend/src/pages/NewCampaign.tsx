@@ -4,7 +4,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { api } from "../lib/api";
 import { displayOffer } from "../lib/offer";
-import { Brief, Business, LANGUAGES, PLATFORMS } from "../lib/types";
+import { Brief, Business, LANGUAGES, OwnerFile, PLATFORM_LABELS, PLATFORMS } from "../lib/types";
 import { Button, Card, DocumentTitle, ErrorNote, Field, focusCls, idleCls, inputCls, selectedCls, Stepper } from "../lib/ui";
 
 const FORMAT_CATALOG: Record<string, string[]> = {
@@ -12,10 +12,12 @@ const FORMAT_CATALOG: Record<string, string[]> = {
   whatsapp: ["message", "offer_card"],
   facebook: ["post"],
   linkedin: ["post"],
+  youtube: ["post", "short"],
+  x: ["post"],
 };
 const FORMAT_LABELS: Record<string, string> = {
   post: "Feed post", story: "Story card", reel: "Reel / video", carousel: "Carousel", poster: "Poster",
-  message: "Message", offer_card: "Offer card",
+  message: "Message", offer_card: "Offer card", short: "Short",
 };
 const PRESETS: { label: string; formats: Record<string, string[]> }[] = [
   { label: "Poster + story + reel", formats: { instagram: ["poster", "story", "reel"] } },
@@ -398,6 +400,7 @@ export default function NewCampaign() {
   const [businessId, setBusinessId] = useState("");
   const [brief, setBrief] = useState<Brief>({});
   const [message, setMessage] = useState("");
+  const [files, setFiles] = useState<OwnerFile[]>([]);
   const [mode, setMode] = useState<"ai" | "user">("user");
   const [formats, setFormats] = useState<Record<string, string[]>>(PRESETS[0].formats);
   const [languages, setLanguages] = useState<string[]>(["en"]);
@@ -481,6 +484,7 @@ export default function NewCampaign() {
         business_id: businessId,
         message,
         brief,
+        attachments: files,
         content_mode: mode,
         requested_formats: mode === "user" ? chosen : {},
         requested_languages: languages,
@@ -616,6 +620,7 @@ export default function NewCampaign() {
                 />
                 <Chips options={contextualHighlights} value={brief.highlights} onPick={set("highlights")} />
               </div>
+              <AttachFiles files={files} onChange={setFiles} />
             </Card>
           )}
 
@@ -653,6 +658,7 @@ export default function NewCampaign() {
                     aria-label="Anything else, in your own words"
                     placeholder="We just opened, we want more people to know about us…" />
                   <VoiceButton onText={(t) => setMessage((m) => (m ? `${m} ${t}` : t))} />
+                  <AttachFiles files={files} onChange={setFiles} />
                 </div>
               </details>
             </Card>
@@ -677,7 +683,7 @@ export default function NewCampaign() {
                   <div className="grid gap-2">
                     {PLATFORMS.map((p) => (
                       <div key={p} className="flex flex-wrap items-center gap-2 text-sm">
-                        <span className="w-24 font-medium capitalize">{p}</span>
+                        <span className="w-28 font-medium">{PLATFORM_LABELS[p] ?? p}</span>
                         {FORMAT_CATALOG[p].map((f) => (
                           <Toggle key={f} small on={(formats[p] ?? []).includes(f)} onClick={() => toggleFormat(p, f)}>
                             {FORMAT_LABELS[f]}
@@ -770,6 +776,7 @@ export default function NewCampaign() {
                 <Row k="Translation style" v={codeSwitching ? "Kanglish / Hinglish / Tanglish (Code-Switching)" : "Pure Native Script (Kannada / Hindi / Tamil)"} />
                 <Row k="Languages" v={langList(languages)} />
                 <Row k="Notes" v={message} />
+                <Row k="Attached" v={files.map((f) => f.filename).join(", ")} />
                 <Row k="Formats" v={mode === "ai" ? "AI decides" : Object.entries(chosen).map(([p, f]) => `${cap(p)}: ${f.map((x) => FORMAT_LABELS[x]).join(", ")}`).join(" · ")} />
               </dl>
               <label className="flex items-center gap-2 text-sm">
@@ -799,6 +806,7 @@ export default function NewCampaign() {
             <Fact k="Occasion" v={brief.occasion || "Not set yet"} />
             <Fact k="Where" v={brief.region || "Not set yet"} />
             <Fact k="Dialect" v={codeSwitching ? "Kanglish / Hinglish" : "Pure Native"} />
+            <Fact k="Files" v={files.length ? files.map((f) => f.filename).join(", ") : "None attached"} />
             <Fact k="In" v={langList(languages) || "No language yet"} />
             <Fact k="On" v={mode === "ai" ? "AI will choose" : Object.keys(chosen).map(cap).join(", ") || "Not chosen yet"} />
           </Card>
@@ -868,6 +876,74 @@ function Toggle({ on, onClick, children, small }: { on: boolean; onClick: () => 
 function Row({ k, v }: { k: string; v?: string | null }) {
   if (!v) return null;
   return <><dt className="text-slate-600">{k}</dt><dd>{v}</dd></>;
+}
+
+const FILE_ROLE: Record<OwnerFile["kind"], string> = {
+  image: "Sample image", text: "Note", audio: "Voice", file: "File",
+};
+
+function AttachFiles({ files, onChange }: { files: OwnerFile[]; onChange: (files: OwnerFile[]) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function add(list: FileList | null) {
+    if (!list?.length) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const added: OwnerFile[] = [];
+      for (const file of Array.from(list)) {
+        const fd = new FormData();
+        fd.append("file", file);
+        added.push(await api.post<OwnerFile>("/campaigns/attachments", fd));
+      }
+      onChange([...files, ...added].slice(0, 8));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't attach that file.");
+    } finally {
+      setBusy(false);
+      if (input.current) input.current.value = "";
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="text-sm font-medium text-slate-700">Attach a file</div>
+      <p className="text-xs text-slate-500">A logo, sample poster, photo, text note, voice recording, or any other file.</p>
+      <input ref={input} type="file" multiple className="hidden" onChange={(e) => add(e.target.files)} />
+      <Button kind="ghost" small disabled={busy || files.length >= 8} onClick={() => input.current?.click()}>
+        {busy ? "Attaching…" : "Attach file"}
+      </Button>
+      {error && <p className="text-xs text-red-700">{error}</p>}
+      {files.length > 0 && (
+        <ul className="space-y-2">
+          {files.map((f) => (
+            <li key={f.url} className="flex items-start gap-2 rounded-lg border border-slate-200 p-2 text-sm">
+              {f.kind === "image"
+                ? <img src={f.url} alt="" className="h-12 w-12 rounded object-cover" />
+                : <span className="flex h-12 w-12 items-center justify-center rounded bg-slate-100 text-[10px] uppercase text-slate-600">{f.kind}</span>}
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium">{f.filename}</div>
+                <div className="text-xs text-slate-500">{f.role === "logo" ? "Logo" : FILE_ROLE[f.kind]}</div>
+                {f.text && <p className="mt-1 line-clamp-2 text-xs text-slate-600">{f.text}</p>}
+                {f.kind === "image" && (
+                  <div className="mt-1 flex gap-1">
+                    <button type="button" className={`rounded-full px-2 py-0.5 text-xs ${focusCls} ${f.role === "logo" ? selectedCls : idleCls}`}
+                      onClick={() => onChange(files.map((x) => x.url === f.url ? { ...x, role: "logo" } : x))}>Logo</button>
+                    <button type="button" className={`rounded-full px-2 py-0.5 text-xs ${focusCls} ${f.role === "sample" ? selectedCls : idleCls}`}
+                      onClick={() => onChange(files.map((x) => x.url === f.url ? { ...x, role: "sample" } : x))}>Sample</button>
+                  </div>
+                )}
+              </div>
+              <button type="button" className={`text-xs text-slate-600 underline ${focusCls}`}
+                onClick={() => onChange(files.filter((x) => x.url !== f.url))}>Remove</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 function VoiceButton({ onText }: { onText: (t: string) => void }) {

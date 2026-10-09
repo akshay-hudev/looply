@@ -15,7 +15,7 @@ export default function Shell() {
     <div className="min-h-screen">
       <header className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-slate-200 bg-white px-6 py-3">
         <Link to="/" className={`leading-tight ${focusCls}`}>
-          <span className="block text-lg font-bold text-brand-700">LocalMind</span>
+          <span className="block text-lg font-bold text-brand-700">Looply</span>
           <span className="block text-xs text-slate-600">Campaigns in your customers' language</span>
         </Link>
         <nav className="flex gap-4 text-sm">

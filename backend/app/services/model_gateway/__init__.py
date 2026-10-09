@@ -96,7 +96,8 @@ class ModelGateway:
         errors = []
         for provider in self._chain("image"):
             try:
-                return await self._call(provider, lambda: provider.image(prompt, size=size, reference_urls=reference_urls))
+                return await self._call(
+                    provider, lambda p=provider, urls=reference_urls: p.image(prompt, size=size, reference_urls=urls))
             except ProviderError as e:
                 errors.append(f"{provider.name}: {e}")
         raise ModelUnavailable("; ".join(errors))
@@ -106,8 +107,8 @@ class ModelGateway:
         errors = []
         for provider in self._chain("video"):
             try:
-                return await self._call(provider, lambda: provider.video_submit(
-                    prompt, duration_s=duration_s, aspect_ratio=aspect_ratio, image_url=image_url))
+                return await self._call(provider, lambda p=provider, frame=image_url: p.video_submit(
+                    prompt, duration_s=duration_s, aspect_ratio=aspect_ratio, image_url=frame))
             except ProviderError as e:
                 errors.append(f"{provider.name}: {e}")
         raise ModelUnavailable("; ".join(errors))

@@ -1,12 +1,13 @@
+from typing import Literal
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from app.agents import fact_checker
 from app.agents.copy import AssetCopy
 from app.api.serializers import asset_out
 from app.core.tenancy import OrgContext, get_org_context, get_owned
-from app.graph.context import PipelineContext
+from app.graph.state import FORMAT_CATALOG
 from app.models import Asset, Campaign
 from app.services.jobs import dispatch
 
@@ -39,8 +40,20 @@ async def edit_asset(asset_id: str, body: AssetEdit, ctx: OrgContext = Depends(g
     edits = body.model_dump(exclude_unset=True, exclude_none=True)
     AssetCopy.model_validate({**(a.content or {}), **edits})
     a.content = {**(a.content or {}), **edits, "edited_by_owner": True}
-    campaign = ctx.db.get(Campaign, a.campaign_id)
-    await fact_checker.verify(PipelineContext(db=ctx.db, campaign=campaign), [a])
+    if a.status in ("draft", "failed", "stale"):
+        a.status = "verified"
+    ctx.db.commit()
+    return asset_out(a)
+
+
+@router.post("/{asset_id}/accept-flag")
+def accept_flag(asset_id: str, ctx: OrgContext = Depends(get_org_context)):
+    """The owner has seen the fact-check note and wants this creative kept."""
+    a = get_owned(ctx, Asset, asset_id)
+    a.verification = {**(a.verification or {}), "owner_accepted": True}
+    if a.status == "failed":
+        a.status = "verified"
+    ctx.db.commit()
     return asset_out(a)
 
 
@@ -89,6 +102,54 @@ async def regenerate_asset(asset_id: str, background: BackgroundTasks, body: Reg
     ctx.db.commit()
     await dispatch(background, "produce_campaign", campaign.id, "regen", [s.id for s in group])
     return {"action": "regenerating", "asset_ids": [s.id for s in group], "all_languages": all_langs, "instructions": instructions}
+
+
+class ReuseIn(BaseModel):
+    mode: Literal["another_platform", "create"] = "another_platform"
+    platform: str | None = None
+
+
+def _place(source: Asset, platform: str) -> tuple[str, str]:
+    catalog = FORMAT_CATALOG[platform]
+    if source.format in catalog and catalog[source.format] == source.kind:
+        return source.format, source.kind
+    for fmt, kind in catalog.items():
+        if kind == source.kind:
+            return fmt, kind
+    if source.media_url:
+        for fmt, kind in catalog.items():
+            if kind == "image":
+                return fmt, kind
+    fmt = next(iter(catalog))
+    return fmt, catalog[fmt]
+
+
+@router.post("/{asset_id}/reuse", status_code=201)
+def reuse_asset(asset_id: str, body: ReuseIn, ctx: OrgContext = Depends(get_org_context)):
+    """Copy a post so the same picture and words can go to another platform, or become a new version."""
+    source = get_owned(ctx, Asset, asset_id)
+    campaign = ctx.db.get(Campaign, source.campaign_id)
+    if campaign is None or campaign.status not in ("review", "approved", "publishing", "published"):
+        raise HTTPException(409, "This post can be copied once the campaign is ready")
+    platform = source.platform if body.mode == "create" else (body.platform or source.platform).lower()
+    if platform not in FORMAT_CATALOG:
+        raise HTTPException(422, "Pick YouTube, X, or one of the connected platforms")
+    fmt, kind = _place(source, platform)
+    taken = list(ctx.db.scalars(select(Asset).where(
+        Asset.campaign_id == source.campaign_id, Asset.platform == platform,
+        Asset.format == fmt, Asset.language == source.language)))
+    copy = Asset(
+        org_id=source.org_id, campaign_id=source.campaign_id, platform=platform, format=fmt,
+        language=source.language, kind=kind, variant=f"R{len(taken) + 1}"[:8], is_selected=True,
+        content={**(source.content or {}), "reused_from": source.id},
+        cultural_notes=source.cultural_notes, media_prompt=source.media_prompt,
+        media_url=source.media_url, media_status="ready" if source.media_url else source.media_status,
+        status="approved" if body.mode == "another_platform" else "verified",
+        verification={}, prediction={}, brain_version=source.brain_version,
+    )
+    ctx.db.add(copy)
+    ctx.db.commit()
+    return asset_out(copy)
 
 
 @router.post("/{asset_id}/reject")

@@ -23,6 +23,7 @@ class PublishIn(BaseModel):
     items: list[PublishItem] | None = None
     scheduled_at: datetime | None = None
     platforms: list[str] | None = None
+    repost: bool = False
 
 
 def job_out(j: PublishJob) -> dict:
@@ -70,7 +71,7 @@ async def publish(campaign_id: str, body: PublishIn, background: BackgroundTasks
         existing = ctx.db.scalar(select(PublishJob).where(
             PublishJob.asset_id == asset.id, PublishJob.social_account_id == acct.id,
             PublishJob.status.in_(("queued", "scheduled", "publishing", "published"))))
-        if existing:
+        if existing and not (body.repost and existing.status == "published"):
             jobs.append(existing)
             continue
         future = when and when > datetime.now(timezone.utc)

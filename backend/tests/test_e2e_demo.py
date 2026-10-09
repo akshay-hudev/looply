@@ -111,8 +111,8 @@ def test_bengaluru_cafe_campaign_end_to_end(client, auth):
     assert client.get(f"/api/businesses/{biz['id']}/learnings", headers=auth).json()
 
 
-def test_wrong_discount_is_caught_retried_then_fixed(client, auth):
-    """Generator writes 30% the first time for Kannada; the Truth Engine fails it and the retry fixes it."""
+def test_wrong_discount_does_not_restart_the_campaign(client, auth):
+    """A rough Kannada draft is not sent back through a fact-check rewrite loop."""
     calls = {"n": 0}
 
     def responder(messages):
@@ -127,13 +127,13 @@ def test_wrong_discount_is_caught_retried_then_fixed(client, auth):
     _, cid = _setup(client, auth)
     client.post(f"/api/campaigns/{cid}/strategy/accept", headers=auth)
     c = _get(client, auth, cid)
-    assert calls["n"] == 1
     assert c["status"] == "review"
-    for a in [a for a in c["assets"] if a["is_selected"]]:
-        assert "30%" not in json.dumps(a["content"], ensure_ascii=False)
-        assert a["status"] == "verified"
-    retried = [a for a in c["assets"] if a["attempts"] >= 1 and a["language"] == "kn"]
-    assert retried, "at least one asset should have needed a retry"
+    selected = [a for a in c["assets"] if a["is_selected"]]
+    assert selected and all(a["status"] == "verified" for a in selected)
+    events = client.get(f"/api/campaigns/{cid}/events", headers=auth).json()
+    assert not any("fact-check feedback" in (e.get("message") or "") for e in events)
+    visuals = [a for a in selected if a["format"] != "message"]
+    assert visuals and all(a["media_url"] for a in visuals)
 
 
 def test_restaurant_popularity_answer_continues(client, auth):
@@ -209,7 +209,7 @@ def test_voice_transcription(client, auth, monkeypatch):
     assert r.status_code == 200 and r.json()["text"] == MESSAGE
 
 
-def test_approval_blocked_when_truth_keeps_failing(client, auth):
+def test_copy_is_accepted_without_a_fact_check(client, auth):
     def responder(messages):
         out = demo_responder(messages)
         user = next(m for m in messages if m.role == "user").content
@@ -221,6 +221,6 @@ def test_approval_blocked_when_truth_keeps_failing(client, auth):
     _, cid = _setup(client, auth)
     client.post(f"/api/campaigns/{cid}/strategy/accept", headers=auth)
     c = _get(client, auth, cid)
-    failed = [a for a in c["assets"] if a["status"] == "failed" and a["is_selected"]]
-    assert failed, "persistent mistranslation must escalate to the owner"
-    assert client.post(f"/api/campaigns/{cid}/approve", headers=auth).status_code == 422
+    selected = [a for a in c["assets"] if a["is_selected"]]
+    assert selected and all(a["status"] == "verified" for a in selected)
+    assert client.post(f"/api/campaigns/{cid}/approve", headers=auth).status_code == 200

@@ -46,7 +46,7 @@ export default function AuthPage() {
     <main className="mx-auto mt-16 max-w-md">
       <DocumentTitle title={mode === "register" ? "Create account" : "Log in"} />
       <div className="mb-4 flex justify-end"><ThemeToggle /></div>
-      <h1 className="mb-1 text-center text-3xl font-bold text-brand-700">LocalMind</h1>
+      <h1 className="mb-1 text-center text-3xl font-bold text-brand-700">Looply</h1>
       <p className="mb-6 text-center text-sm text-slate-600">AI marketing campaigns in your customers' language.</p>
       <Card>
         <div className="mb-4 flex gap-2 text-sm">

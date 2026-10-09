@@ -47,7 +47,7 @@ class PublishAdapter(Protocol):
 def require_publishable_media(asset: Asset) -> None:
     urls = [asset.media_url or "", *((asset.content or {}).get("slide_urls") or [])]
     if any(u.lower().endswith(".svg") for u in urls):
-        raise AdapterError("This creative is a LocalMind preview (composed without an image/video model). "
+        raise AdapterError("This creative is a Looply preview (composed without an image/video model). "
                            "Add AGNES_API_KEY (or another image provider) and regenerate it before publishing "
                            "to a real account, or publish to a simulated account.")
 

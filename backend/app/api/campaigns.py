@@ -1,9 +1,10 @@
 import asyncio
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sse_starlette.sse import EventSourceResponse
@@ -15,9 +16,11 @@ from app.core.db import SessionLocal
 from app.core.security import decode_access_token
 from app.core.tenancy import OrgContext, get_org_context, get_owned
 from app.graph.context import PipelineContext
-from app.graph.state import FORMAT_CATALOG, CampaignBrain, CampaignBrief, OfferFacts
+from app.graph.state import FORMAT_CATALOG, CampaignBrain, CampaignBrief, OfferFacts, OwnerFile
 from app.models import AgentEvent, Asset, Business, Campaign, CampaignVersion, Membership, PublishJob
+from app.services import speech_service
 from app.services.jobs import dispatch
+from app.services.media_service import MediaService
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 
@@ -28,6 +31,7 @@ class CampaignIn(BaseModel):
     business_id: str
     message: str = Field(default="", max_length=5000)
     brief: CampaignBrief = Field(default_factory=CampaignBrief)
+    attachments: list[OwnerFile] = Field(default_factory=list, max_length=8)
     title: str | None = None
     content_mode: Literal["ai", "user"] = "ai"
     requested_formats: dict[str, list[str]] = Field(default_factory=dict)
@@ -55,6 +59,11 @@ class FactsPatch(BaseModel):
     business_name: str | None = None
     brand_voice: str | None = None
     supported_claims: list[str] | None = None
+
+
+class ApproveIn(BaseModel):
+    """asset_ids omitted approves every selected post. A list approves only those posts."""
+    asset_ids: list[str] | None = None
 
 
 def _assets(ctx: OrgContext, campaign_id: str) -> list[Asset]:
@@ -88,6 +97,87 @@ def brief_message(brief: CampaignBrief, message: str) -> str:
     return "\n".join([message.strip(), *lines]).strip()
 
 
+def files_note(files: list[OwnerFile]) -> str:
+    """Turn attached logos, samples, notes, and voice transcripts into brief text the agents can read."""
+    chunks = []
+    for f in files:
+        if f.kind == "image" and f.role == "logo":
+            chunks.append(f"Owner logo: {f.filename}. Use this logo on the creatives.")
+        elif f.kind == "image":
+            chunks.append(f"Owner sample image or poster: {f.filename}. Match this look and the product it shows.")
+        elif f.text and f.text.strip():
+            label = "Voice note" if f.kind == "audio" else f"Notes from {f.filename}"
+            chunks.append(f"{label}:\n{f.text.strip()}")
+        else:
+            chunks.append(f"Owner attached a file: {f.filename}.")
+    return "\n\n".join(chunks)
+
+
+_IMAGE_MAGIC = (
+    (b"\xff\xd8\xff", "jpg"),
+    (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"GIF87a", "gif"),
+    (b"GIF89a", "gif"),
+)
+_TEXT_EXT = {"txt", "md", "csv", "json"}
+_AUDIO_EXT = {"webm", "wav", "mp3", "m4a", "ogg", "mp4", "mpeg"}
+_BLOCKED_EXT = {"exe", "bat", "cmd", "com", "ps1", "msi", "dll", "js", "html", "htm", "svg", "scr"}
+_MAX_ATTACHMENT = 12 * 1024 * 1024
+
+
+def _ext(filename: str) -> str:
+    return Path(filename).suffix.lower().lstrip(".")
+
+
+def _sniff_image(data: bytes) -> str | None:
+    for magic, ext in _IMAGE_MAGIC:
+        if data.startswith(magic):
+            return ext
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
+def _safe_ext(filename: str) -> str:
+    ext = _ext(filename)
+    if ext.isalnum() and len(ext) <= 8 and ext not in _BLOCKED_EXT:
+        return ext
+    return "bin"
+
+
+@router.post("/attachments", status_code=201)
+async def upload_attachment(file: UploadFile = File(...), ctx: OrgContext = Depends(get_org_context)):
+    """Store a logo, sample poster, note, voice recording, or other file for the next campaign."""
+    name = Path(file.filename or "file").name
+    ext = _ext(name)
+    if ext in _BLOCKED_EXT:
+        raise HTTPException(400, "That file type can't be attached")
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "That file is empty")
+    if len(data) > _MAX_ATTACHMENT:
+        raise HTTPException(413, "Attach a file under 12 MB")
+    image_ext = _sniff_image(data)
+    content_type = (file.content_type or "").split(";")[0].lower()
+    text: str | None = None
+    if image_ext:
+        kind, role, store_ext = "image", ("logo" if "logo" in name.lower() else "sample"), image_ext
+    elif ext in _AUDIO_EXT or content_type.startswith("audio/"):
+        kind, role, store_ext = "audio", "voice", _safe_ext(name)
+        try:
+            heard = await speech_service.transcribe(data, name, content_type or "application/octet-stream")
+            text = (heard.get("text") or "").strip()[:8000] or None
+        except speech_service.SpeechUnavailable:
+            text = None
+    elif ext in _TEXT_EXT or content_type.startswith("text/"):
+        kind, role, store_ext = "text", "note", _safe_ext(name) if ext in _TEXT_EXT else "txt"
+        text = data.decode("utf-8", errors="replace").replace("\x00", "").strip()[:8000] or None
+    else:
+        kind, role, store_ext = "file", "file", _safe_ext(name)
+    url = MediaService().put(data, org_id=ctx.org_id, ext=store_ext)
+    return OwnerFile(url=url, filename=name[:200], kind=kind, role=role, text=text)
+
+
 def seed_brain(brain: CampaignBrain, brief: CampaignBrief) -> None:
     """Owner-entered brief fields become facts directly, so nothing has to be re-asked."""
     b = brief.filled()
@@ -117,10 +207,18 @@ async def create_campaign(body: CampaignIn, background: BackgroundTasks, ctx: Or
     if body.content_mode == "user" and not formats:
         raise HTTPException(422, "Choose at least one format, or use content_mode 'ai'")
     message = brief_message(body.brief, body.message)
+    attached = files_note(body.attachments)
+    if attached:
+        message = f"{message}\n\n{attached}".strip()
     if len(message) < 3:
         message = f"Promote {biz.name}" + (f", a {biz.category}" if biz.category else "")
+    media_prefix = f"/media/{ctx.org_id}/"
+    for item in body.attachments:
+        if media_prefix not in item.url:
+            raise HTTPException(422, "Attach the file again before starting the campaign")
     brain = CampaignBrain(content_mode=body.content_mode, requested_formats=formats,
                           requested_platforms=list(formats), brief=body.brief,
+                          files=body.attachments,
                           requested_languages=[l.lower() for l in body.requested_languages])
     seed_brain(brain, body.brief)
     if body.code_switching is not None:
@@ -369,18 +467,54 @@ async def update_facts(campaign_id: str, body: FactsPatch, background: Backgroun
     return result
 
 
-@router.post("/{campaign_id}/approve")
-def approve_campaign(campaign_id: str, ctx: OrgContext = Depends(get_org_context)):
-    """Owner approval of every selected, verified asset. Nothing publishes without this."""
+def fact_flagged(asset: Asset) -> bool:
+    """A creative the fact check marked, which the owner may still approve."""
+    verdict = (asset.verification or {}).get("verdict")
+    return verdict == "NEEDS_WORK" or bool((asset.verification or {}).get("issues"))
+
+
+def blocks_approval(asset: Asset) -> bool:
+    """Only an unfinished draft is held back. A fact-check note or a waiting translation can still be approved."""
+    return asset.status in ("stale", "draft")
+
+
+@router.post("/{campaign_id}/accept-flags")
+def accept_flags(campaign_id: str, ctx: OrgContext = Depends(get_org_context)):
+    """Keep every flagged creative and move on. The note stays; the post is not held back."""
     c = get_owned(ctx, Campaign, campaign_id)
-    if c.status not in ("review", "approved"):
+    for asset in _assets(ctx, c.id):
+        if not asset.is_selected or not fact_flagged(asset):
+            continue
+        asset.verification = {**(asset.verification or {}), "owner_accepted": True}
+        if asset.status == "failed":
+            asset.status = "verified"
+    ctx.db.commit()
+    return campaign_out(c, _assets(ctx, c.id))
+
+
+@router.post("/{campaign_id}/approve")
+def approve_campaign(campaign_id: str, ctx: OrgContext = Depends(get_org_context), body: ApproveIn | None = None):
+    """Approve the posts the owner checked. A fact-check note does not block this."""
+    c = get_owned(ctx, Campaign, campaign_id)
+    if c.status not in ("review", "approved", "publishing", "published"):
         raise HTTPException(409, f"Campaign is '{c.status}', not ready for approval")
     assets = _assets(ctx, c.id)
     selected = [a for a in assets if a.is_selected]
-    blocking = [a.id for a in selected if a.status in ("failed", "stale", "draft", "pending_localization")]
+    requested = body.asset_ids if body and body.asset_ids is not None else None
+    if requested is not None:
+        if not requested:
+            raise HTTPException(422, {"message": "Check at least one post", "asset_ids": []})
+        known = {a.id for a in selected}
+        missing = [i for i in requested if i not in known]
+        if missing:
+            raise HTTPException(422, {"message": "Those posts are not part of this campaign", "asset_ids": missing})
+        chosen = [a for a in selected if a.id in requested]
+    else:
+        chosen = selected
+    blocking = [a.id for a in chosen if blocks_approval(a)]
     if blocking:
         raise HTTPException(422, {"message": "Some selected assets are not verified", "asset_ids": blocking})
-    for a in selected:
+    for a in chosen:
         a.status = "approved"
     pctx = PipelineContext(db=ctx.db, campaign=c)
     brain = pctx.brain()
@@ -388,7 +522,8 @@ def approve_campaign(campaign_id: str, ctx: OrgContext = Depends(get_org_context
     brain.approval.by = ctx.user.email
     brain.approval.at = datetime.now(timezone.utc).isoformat()
     pctx.save_brain(brain)
-    c.status = "approved"
+    if c.status not in ("publishing", "published"):
+        c.status = "approved"
     ctx.db.commit()
     return campaign_out(c, assets)
 

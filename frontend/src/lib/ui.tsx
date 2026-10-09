@@ -32,14 +32,14 @@ export function statusLabel(status: string): string {
 
 export function DocumentTitle({ title }: { title: string }) {
   useEffect(() => {
-    document.title = title === "LocalMind" ? title : `${title} · LocalMind`;
-    return () => { document.title = "LocalMind"; };
+    document.title = title === "Looply" ? title : `${title} · Looply`;
+    return () => { document.title = "Looply"; };
   }, [title]);
   return null;
 }
 
-export function Card({ children, className = "", compact = false }: { children: ReactNode; className?: string; compact?: boolean }) {
-  return <div className={`rounded-xl border border-slate-200 bg-white shadow-sm ${compact ? "p-3" : "p-4"} ${className}`}>{children}</div>;
+export function Card({ children, className = "", compact = false, id }: { children: ReactNode; className?: string; compact?: boolean; id?: string }) {
+  return <div id={id} className={`rounded-xl border border-slate-200 bg-white shadow-sm ${compact ? "p-3" : "p-4"} ${className}`}>{children}</div>;
 }
 
 export function Button({

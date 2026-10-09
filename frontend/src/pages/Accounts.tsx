@@ -15,6 +15,8 @@ const OFFICIAL_LOGIN_URLS: Record<Platform, string> = {
   facebook: "https://www.facebook.com/login.php",
   whatsapp: "https://web.whatsapp.com/",
   linkedin: "https://www.linkedin.com/login",
+  youtube: "https://www.youtube.com/account",
+  x: "https://x.com/i/flow/login",
 };
 
 const META: Record<Platform, { label: string; icon: string; color: string; needs: string; idLabel: string; idHelp: string }> = {
@@ -37,6 +39,16 @@ const META: Record<Platform, { label: string; icon: string; color: string; needs
     needs: "A LinkedIn profile (or a Page you administer).", idLabel: "Person or organization URN",
     idHelp: "The id LinkedIn shows for a person or a Page. It starts with urn:li:.",
   },
+  youtube: {
+    label: "YouTube", icon: "▶️", color: "from-red-600 to-red-400",
+    needs: "A YouTube channel. A simulated account lets you try the same picture and caption here.",
+    idLabel: "Channel id", idHelp: "YouTube Studio → Settings → Channel → Advanced settings.",
+  },
+  x: {
+    label: "X", icon: "𝕏", color: "from-slate-800 to-slate-600",
+    needs: "An X account. A simulated account lets you try the same picture and caption here.",
+    idLabel: "Username or user id", idHelp: "The @name on your X profile.",
+  },
 };
 const STEPS = ["Choose platform", "How to connect", "Connect", "Done"];
 const REPLACE_KEY = "lm.replaceAccount";
@@ -58,7 +70,7 @@ export default function Accounts() {
   const [busy, setBusy] = useState(false);
   const [tok, setTok] = useState({ access_token: "", external_id: "", waba_id: "", display_name: "" });
 
-  const via = providers.data?.[platform]?.via ?? (platform === "linkedin" ? "LinkedIn" : "Facebook");
+  const via = providers.data?.[platform]?.via ?? META[platform].label;
   const m = META[platform];
 
   function restart() {
@@ -143,7 +155,7 @@ export default function Accounts() {
               const live = linked.some((a) => !a.simulated);
               return (
               <div key={p}
-                onClick={() => { sessionStorage.removeItem(REPLACE_KEY); setPlatform(p); setMethod("login"); setStep(1); }}
+                onClick={() => { sessionStorage.removeItem(REPLACE_KEY); setPlatform(p); setMethod(providers.data?.[p]?.login ? "login" : "simulated"); setStep(1); }}
                 className={`group flex cursor-pointer items-center gap-3 rounded-xl border p-3 text-left transition-all hover:border-brand-500 hover:bg-brand-50/50 ${live ? "border-emerald-400 bg-emerald-50/40" : "border-slate-200"}`}>
                 <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-xl ${META[p].color}`}>{META[p].icon}</span>
                 <span className="min-w-0 flex-1">
@@ -193,7 +205,7 @@ export default function Accounts() {
             text="Nothing is posted anywhere. Every publish is clearly labelled simulated, ideal for quick testing." />
           <details className="rounded-lg bg-slate-100 p-3 text-xs text-slate-600">
             <summary className="cursor-pointer font-medium">Why can't I just type my password here?</summary>
-            Instagram, Facebook, WhatsApp and LinkedIn don't allow third-party apps to store passwords: their APIs require
+            Instagram, Facebook, WhatsApp, LinkedIn, YouTube and X don't allow third-party apps to store passwords: their APIs require
             authorizing directly on their official login pages. This keeps your credentials secure.
           </details>
           <div className="flex justify-between pt-1">
@@ -214,7 +226,7 @@ export default function Accounts() {
               <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-700">
                 <li>Click the button below to redirect to {via}'s official login page.</li>
                 <li>Enter your {via} email/phone and password on their official page.</li>
-                <li>Authorize LocalMind to post content to your {m.label} account.</li>
+                <li>Authorize Looply to post content to your {m.label} account.</li>
               </ol>
               <div className="flex flex-wrap items-center gap-2 pt-2">
                 <Button onClick={go} disabled={busy}>
@@ -302,7 +314,8 @@ export default function Accounts() {
             <div className="min-w-0">
               <span className="mr-1">{META[a.target_platform as Platform]?.icon}</span>
               <b className="capitalize">{a.target_platform}</b> · {a.display_name}{" "}
-              {a.simulated ? <Badge tone="amber">Simulated</Badge> : <Badge tone="green">Connected</Badge>}
+              {a.simulated ? <Badge tone="amber">Simulated</Badge> : a.kind === "user" ? <Badge tone="amber">Needs a Page</Badge> : <Badge tone="green">Connected</Badge>}
+              {a.kind === "user" && <div className="text-xs text-amber-800">This is a personal profile. Create a Facebook Page, then press Change and connect the Page.</div>}
             </div>
             <div className="flex shrink-0 gap-2">
               <a

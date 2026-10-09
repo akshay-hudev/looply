@@ -6,12 +6,11 @@ from pydantic import BaseModel, Field
 
 from app.agents.base import call_agent, creative_context
 from app.agents.copy import VideoScene, asset_text
-from app.agents.visual import OFFLINE_PROVIDERS, creative_copy
+from app.agents.visual import OFFLINE_PROVIDERS, creative_copy, owner_images
 from app.graph.context import PipelineContext
 from app.graph.state import language_name
 from app.models import Asset
 from app.services.creative_renderer import compose_storyboard
-from app.validators.offer_validator import check_offer
 from app.services.media_service import MediaService
 
 log = logging.getLogger(__name__)
@@ -39,6 +38,13 @@ async def submit(ctx: PipelineContext, asset: Asset) -> Asset:
             "brand": brain.business.model_dump(include={"name", "category", "personality"}),
             "audience": brain.strategy.primary_audience,
             "locality": {"city": brain.locality.city, "area": brain.locality.area},
+            "owner_images": owner_images(brain),
+            "template": (asset.content or {}).get("template"),
+            "template_instruction": (
+                "Build the scenes in this template's order. One role per beat. "
+                "Overlay text is under six words and can be read with the sound off. "
+                "The host states the claim, the customer states the feeling, the narrator states the fact."
+            ),
         }
         plan = await call_agent(ctx, "video", VideoPlan, payload, temperature=0.7)
         asset.media_prompt = plan.prompt
@@ -46,8 +52,12 @@ async def submit(ctx: PipelineContext, asset: Asset) -> Asset:
             "duration_s": plan.duration_s, "aspect_ratio": plan.aspect_ratio,
             "scenes": [s.model_dump() for s in plan.scenes]}, "video_hook": plan.hook}
         try:
+            frame = next((im["url"] for im in owner_images(brain) if im["role"] != "logo"), None)
+            if frame is None:
+                imgs = owner_images(brain)
+                frame = imgs[0]["url"] if imgs else None
             task = await ctx.gateway.video_submit(plan.prompt, duration_s=plan.duration_s,
-                                                  aspect_ratio=plan.aspect_ratio)
+                                                  aspect_ratio=plan.aspect_ratio, image_url=frame)
         except Exception as e:
             log.warning("video model unavailable for asset %s, composing storyboard: %s", asset.id, e)
             task = None
@@ -70,11 +80,8 @@ def storyboard(ctx: PipelineContext, asset: Asset, media: MediaService | None = 
     brain = ctx.brain()
     c = asset.content or {}
     script = c.get("video_script") or {}
-    scenes = [s for s in script.get("scenes") or []
-              if not check_offer(f"{s.get('overlay_text') or ''} {s.get('voiceover') or ''}", brain.offer)]
-    hook = c.get("video_hook")
-    if not hook or check_offer(hook, brain.offer):
-        hook = c.get("hook") or c.get("headline")
+    scenes = [s for s in script.get("scenes") or [] if s]
+    hook = c.get("video_hook") or c.get("hook") or c.get("headline")
     fallback = creative_copy(asset, brain, headline=hook)
     svg = compose_storyboard(fallback, scenes, int(script.get("duration_s") or 10))
     asset.media_url = media.put(svg.encode("utf-8"), org_id=asset.org_id, ext="svg")

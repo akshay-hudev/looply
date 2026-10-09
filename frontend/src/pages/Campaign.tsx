@@ -6,16 +6,16 @@ import LocalityMap from "../components/LocalityMap";
 import { api } from "../lib/api";
 import { displayOffer } from "../lib/offer";
 import { useCampaignStream } from "../lib/stream";
-import { Asset, Business, Campaign as CampaignT, LANGUAGES, SocialAccount } from "../lib/types";
+import { Asset, Business, Campaign as CampaignT, LANGUAGES, PLATFORM_LABELS, PLATFORMS, SocialAccount } from "../lib/types";
 import { Badge, Button, Card, DocumentTitle, ErrorNote, Field, fieldCls, focusCls, idleCls, inputCls, selectedCls, Spinner, statusTone, Stepper } from "../lib/ui";
 
 const FORMAT_NAMES: Record<string, string> = {
   post: "Feed post", story: "Story card", reel: "Reel", carousel: "Carousel", poster: "Poster",
-  message: "WhatsApp message", offer_card: "Offer card",
+  message: "WhatsApp message", offer_card: "Offer card", short: "Short",
 };
 const STAGE_TABS: Record<number, readonly Tab[]> = {
   0: ["strategy"],
-  1: ["creatives", "content", "localization", "truth", "performance"],
+  1: ["creatives", "content", "localization", "performance"],
   2: ["approval"],
   3: ["publishing", "analytics"],
 };
@@ -24,14 +24,13 @@ const TAB_LABELS: Record<Tab, string> = {
   strategy: "Plan",
   content: "Copy",
   localization: "Translations",
-  truth: "Fact-check",
   performance: "Predictions",
   approval: "Approve",
   publishing: "Publish",
   analytics: "Results",
 };
 
-type Tab = "creatives" | "strategy" | "content" | "localization" | "truth" | "performance" | "approval" | "publishing" | "analytics";
+type Tab = "creatives" | "strategy" | "content" | "localization" | "performance" | "approval" | "publishing" | "analytics";
 
 function stageForTab(t: Tab): number {
   for (const [idx, list] of Object.entries(STAGE_TABS)) {
@@ -120,6 +119,8 @@ export default function CampaignPage() {
   const [contentFocus, setContentFocus] = useState<Focus | null>(null);
   const [notice, setNotice] = useState("");
   const [regenAsset, setRegenAsset] = useState<Asset | null>(null);
+  const [stepError, setStepError] = useState<unknown>(null);
+  const [stepBusy, setStepBusy] = useState(false);
 
   if (q.isLoading) {
     return (
@@ -150,13 +151,19 @@ export default function CampaignPage() {
   const audience = c.brain.brief?.audience || c.brain.strategy?.primary_audience;
   const platforms = c.brain.strategy?.platforms ?? [];
   const languages = c.brain.strategy?.languages ?? [];
-  const broken = assets.find((a) => a.is_selected && (a.status === "failed" || a.verification?.status === "failed"));
-  const step = nextStep(c, (c.summary?.failed ?? 0) > 0);
+  const broken = assets.find((a) => a.is_selected && a.status === "failed" && a.verification?.verdict !== "NEEDS_WORK" && !(a.verification?.issues?.length));
+  const flagged = assets.some((a) => a.is_selected && (a.verification?.verdict === "NEEDS_WORK" || (a.verification?.issues?.length ?? 0) > 0) && !a.verification?.owner_accepted);
+  const step = nextStep(c, flagged);
   const stageLine = `Writing ${product} for ${shopName}${languages.length ? ` in ${langList(languages)}` : ""}.`;
 
   function openCopy(asset: Asset) {
     setContentFocus({ platform: asset.platform, language: asset.language, assetId: asset.id });
     setTab("content");
+  }
+
+  function openApproval() {
+    setTab("approval");
+    window.setTimeout(() => document.getElementById("approve-posts")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   }
 
   const place = [shop?.category, shop?.city].filter(Boolean).join(" · ");
@@ -199,10 +206,28 @@ export default function CampaignPage() {
             <p className="font-medium">{step.title}</p>
             <p className="text-sm text-slate-600">{step.detail}</p>
           </div>
-          <Button onClick={() => {
-            if (step.tab === "content" && broken) openCopy(broken);
-            else setTab(step.tab);
-          }}>{step.action}</Button>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => {
+                if (step.tab === "content" && broken) openCopy(broken);
+                else if (step.tab === "approval") openApproval();
+                else setTab(step.tab);
+              }}>{step.action}</Button>
+              {flagged && (c.status === "review" || c.status === "approved") && (
+                <Button kind="ghost" disabled={stepBusy} onClick={async () => {
+                  setStepError(null);
+                  setStepBusy(true);
+                  try {
+                    await api.post(`/campaigns/${c.id}/accept-flags`);
+                    await qc.invalidateQueries({ queryKey: ["campaign", id] });
+                    openApproval();
+                  } catch (e) { setStepError(e); }
+                  finally { setStepBusy(false); }
+                }}>{stepBusy ? "Keeping the posts…" : "Proceed anyway"}</Button>
+              )}
+            </div>
+            <ErrorNote error={stepError} />
+          </div>
         </Card>
       )}
 
@@ -225,13 +250,12 @@ export default function CampaignPage() {
         {tab === "strategy" && <StrategyTab campaign={c} onChanged={() => qc.invalidateQueries({ queryKey: ["campaign", id] })} />}
         {tab === "content" && <ContentTab campaign={c} assets={assets} focus={contentFocus} onChanged={() => qc.invalidateQueries({ queryKey: ["campaign", id] })} onRegenerate={setRegenAsset} />}
         {tab === "localization" && <LocalizationTab assets={assets} />}
-        {tab === "truth" && <TruthTab assets={assets} onOpen={openCopy} />}
         {tab === "performance" && <PerformanceTab campaign={c} />}
         {tab === "approval" && (
           <ApprovalTab campaign={c} onChanged={() => qc.invalidateQueries({ queryKey: ["campaign", id] })}
             onApproved={() => { setNotice("Approved. Nothing publishes until you say so."); setTab("publishing"); }} />
         )}
-        {tab === "publishing" && <PublishingTab campaign={c} notice={notice} onGoto={setTab} />}
+        {tab === "publishing" && <PublishingTab campaign={c} notice={notice} onGoto={setTab} onEdit={openCopy} />}
         {tab === "analytics" && <AnalyticsTab campaign={c} />}
       </div>
 
@@ -261,11 +285,15 @@ function nextStep(c: CampaignT, hasFailures: boolean): { title: string; detail: 
       action: "Accept this plan",
     };
   }
-  if (hasFailures && (c.status === "review" || c.status === "approved")) {
-    return { title: "A line doesn't match your facts", detail: deal, tab: "content", action: "Fix the copy" };
-  }
   if (c.status === "review") {
-    return { title: `Approve ${product}`, detail: `Nothing goes to ${platforms} until you approve.`, tab: "approval", action: "Review and approve" };
+    return {
+      title: `Approve ${product}`,
+      detail: hasFailures
+        ? `${deal} A fact check left a note. Edit the line, or proceed with the image as it is.`
+        : `Check the posts you want, or check all of them, then approve.`,
+      tab: "approval",
+      action: "Review and approve",
+    };
   }
   if (c.status === "approved") {
     return { title: `Publish ${product} for ${name}`, detail: "You can send it now or pick a time.", tab: "publishing", action: "Go to publish" };
@@ -474,6 +502,14 @@ function StrategyTab({ campaign, onChanged }: { campaign: CampaignT; onChanged: 
         {brief?.product && <p><span className="text-slate-600">Promoting: </span><b>{brief.product}</b></p>}
         {brief?.offer && <p><span className="text-slate-600">Deal: </span><b>{displayOffer(brief.offer)}</b></p>}
         {brief?.highlights && <p><span className="text-slate-600">What makes you special: </span><b>{brief.highlights}</b></p>}
+        {(campaign.brain.files ?? []).length > 0 && (
+          <div>
+            <span className="text-slate-600">Attached: </span>
+            {(campaign.brain.files ?? []).map((f) => (
+              <a key={f.url} href={f.url} className="mr-2 underline" target="_blank" rel="noreferrer">{f.filename}</a>
+            ))}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-1 text-xs">
           {factRows(offer).map((row) => (
             <div key={row.label}><span className="text-slate-600">{row.label}: </span><b>{row.value}</b></div>))}
@@ -540,7 +576,7 @@ function CreativesTab({ assets, generating, awaitingPlan, product, languageLine,
       </div>
       {previewOnly && (
         <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800">
-          These designs were composed by LocalMind from your verified copy, so you can see and download every creative right now.
+          These designs were composed by Looply from your verified copy, so you can see and download every creative right now.
           Photos and video stay as previews until an image service is connected.
         </p>
       )}
@@ -559,6 +595,40 @@ function CreativesTab({ assets, generating, awaitingPlan, product, languageLine,
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function FactNotes({ asset }: { asset: Asset }) {
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const notes = (asset.verification?.issues ?? [])
+    .filter((issue) => issue.severity === "high" || issue.severity === "medium")
+    .slice(0, 2)
+    .map((issue) => {
+      const row = issue as { detail?: string; found?: string; expected?: string };
+      if (row.detail) return row.detail;
+      if (row.found && row.expected) return `${row.found}. Your facts say ${row.expected}.`;
+      return "";
+    })
+    .filter(Boolean);
+  if (!notes.length || asset.verification?.owner_accepted) return null;
+  return (
+    <div className="space-y-1">
+      <p className="text-xs text-amber-800">
+        Worth a look. The creative stays up — edit the copy if a line should change. {notes.join(" ")}
+      </p>
+      <Button kind="ghost" small disabled={busy} onClick={async () => {
+        setBusy(true);
+        setError(null);
+        try {
+          await api.post(`/assets/${asset.id}/accept-flag`);
+          await qc.invalidateQueries({ queryKey: ["campaign", asset.campaign_id] });
+        } catch (e) { setError(e); }
+        finally { setBusy(false); }
+      }}>{busy ? "Keeping it…" : "Proceed anyway"}</Button>
+      <ErrorNote error={error} />
     </div>
   );
 }
@@ -626,6 +696,7 @@ function CreativeCard({
         {a.content.cta && <div className="mt-1 text-brand-700">→ {a.content.cta}</div>}
       </div>
       {a.content.media_note && <p className="text-xs text-amber-800">{a.content.media_note}</p>}
+      <FactNotes asset={a} />
       <div className="mt-auto flex flex-wrap items-center gap-2 pt-1 text-xs">
         {src && <a href={src} download className={`rounded border border-slate-500 px-2 py-1 hover:bg-slate-50 ${focusCls}`}>Download</a>}
         {slides.length > 1 && <span className="text-slate-600">slide {slide + 1}/{slides.length}</span>}
@@ -905,35 +976,6 @@ function LocalizationTab({ assets }: { assets: Asset[] }) {
   );
 }
 
-function TruthTab({ assets, onOpen }: { assets: Asset[]; onOpen: (asset: Asset) => void }) {
-  const selected = assets.filter((a) => a.is_selected);
-  if (!selected.length) {
-    return <p className="text-sm text-slate-600">Fact-check runs after the creatives exist. Approval stays off until every selected piece is verified.</p>;
-  }
-  return (
-    <div className="grid gap-2">
-      {selected.map((a) => (
-        <Card key={a.id} className="flex flex-wrap items-start justify-between gap-2 text-sm">
-          <div>
-            <b className="capitalize">{cap(a.platform)} · {FORMAT_NAMES[a.format] ?? a.format}</b> · {LANGUAGES[a.language] ?? a.language}
-            {a.content.headline && <div className="font-medium">{a.content.headline}</div>}
-            <div className="text-xs text-slate-600">score {a.verification.score ?? "—"} · attempts {a.attempts}</div>
-            <ul className="mt-1 text-xs text-red-700">
-              {(a.verification.issues ?? []).map((iss, i) => <li key={i}>{iss.severity}: {iss.detail}</li>)}
-            </ul>
-          </div>
-          <div className="flex items-center gap-2">
-            <Badge tone={statusTone(a.verification.status ?? a.status)}>{statusLabel(a.verification.status ?? a.status)}</Badge>
-            {(a.status === "failed" || a.verification.status === "failed") && (
-              <Button small kind="ghost" onClick={() => onOpen(a)}>Edit copy</Button>
-            )}
-          </div>
-        </Card>
-      ))}
-    </div>
-  );
-}
-
 function PerformanceTab({ campaign }: { campaign: CampaignT }) {
   const s = campaign.summary;
   const selected = (campaign.assets ?? []).filter((a) => a.is_selected && a.prediction?.predicted_score);
@@ -943,7 +985,7 @@ function PerformanceTab({ campaign }: { campaign: CampaignT }) {
         <Score label="Predicted impact" value={s?.predicted_impact} />
         <Score label="Platform fit" value={s?.platform_fit} />
         <Score label="Local relevance" value={s?.local_relevance} />
-        <Score label="Fact-check score" value={s?.truth?.avg_score ?? null} />
+        <Score label="Pieces ready" value={s?.verified ?? null} />
       </div>
       <p className="text-sm text-amber-800">These are estimates made before publishing, not measured results. Results show the numbers from the platforms after something is published.</p>
       <p className="text-sm text-slate-600">{offerLine(campaign.brain.brief, campaign.brain.offer)} · {productOf(campaign)}</p>
@@ -968,11 +1010,31 @@ function Score({ label, value }: { label: string; value: number | null | undefin
   );
 }
 
+function canTick(asset: Asset): boolean {
+  if (asset.status === "approved" || asset.status === "rejected") return false;
+  return asset.status !== "stale" && asset.status !== "draft";
+}
+
+function postTitle(asset: Asset): string {
+  const headline = asset.content.headline || (asset.format === "message" ? String(asset.content.body ?? "").split("\n")[0] : "");
+  return headline || FORMAT_NAMES[asset.format] || asset.format;
+}
+
 function ApprovalTab({ campaign, onChanged, onApproved }: { campaign: CampaignT; onChanged: () => void; onApproved: () => void }) {
+  const posts = (campaign.assets ?? []).filter((a) => a.is_selected && a.status !== "rejected");
+  const readyKey = posts.filter(canTick).map((a) => a.id).join(",");
+  const [pickedKey, setPickedKey] = useState(readyKey);
+  const [picked, setPicked] = useState<string[]>(() => readyKey.split(",").filter(Boolean));
+  if (pickedKey !== readyKey) {
+    setPickedKey(readyKey);
+    setPicked(readyKey.split(",").filter(Boolean));
+  }
+  const readyIds = readyKey.split(",").filter(Boolean);
+  const allOn = readyIds.length > 0 && readyIds.every((id) => picked.includes(id));
   const [discount, setDiscount] = useState(campaign.brain.offer.discount ?? "");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState<"approve" | "facts" | null>(null);
-  const canApprove = campaign.status === "review" || campaign.status === "approved";
+  const canApprove = ["review", "approved", "publishing", "published"].includes(campaign.status);
   async function changeFacts() {
     setError(null);
     setBusy("facts");
@@ -982,10 +1044,61 @@ function ApprovalTab({ campaign, onChanged, onApproved }: { campaign: CampaignT;
   async function approve() {
     setError(null);
     setBusy("approve");
-    try { await api.post(`/campaigns/${campaign.id}/approve`); onChanged(); onApproved(); }
-    catch (e) { setError(e); } finally { setBusy(null); }
+    try {
+      await api.post(`/campaigns/${campaign.id}/approve`, { asset_ids: picked });
+      onChanged();
+      onApproved();
+    } catch (e) { setError(e); } finally { setBusy(null); }
   }
   return (
+    <div className="space-y-4">
+      <Card id="approve-posts" className="space-y-3 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-semibold">Choose posts to approve</h2>
+          {readyIds.length > 0 && (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={allOn} onChange={() => setPicked(allOn ? [] : readyIds)} />
+              Check all
+            </label>
+          )}
+        </div>
+        <p className="text-slate-600">Check every post you want to publish, or use Check all, then approve.</p>
+        {posts.length === 0 && <p className="text-slate-600">Posts show up here once the creatives are ready.</p>}
+        <ul className="space-y-2">
+          {posts.map((asset) => {
+            const open = canTick(asset);
+            const checked = asset.status === "approved" || picked.includes(asset.id);
+            const thumb = asset.media_url || asset.content.slide_urls?.[0];
+            return (
+              <li key={asset.id}>
+                <label className={`flex items-center gap-3 rounded-lg border border-slate-200 px-2 py-2 ${open ? "cursor-pointer hover:bg-slate-50" : ""}`}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={!open}
+                    onChange={() => setPicked((cur) => cur.includes(asset.id) ? cur.filter((id) => id !== asset.id) : [...cur, asset.id])}
+                  />
+                  {thumb && <img src={thumb} alt="" className="h-14 w-14 rounded object-cover" />}
+                  <span className="min-w-0">
+                    <span className="block font-medium">{postTitle(asset)}</span>
+                    <span className="block text-xs text-slate-600">
+                      {FORMAT_NAMES[asset.format] ?? asset.format} · {cap(asset.platform)} · {LANGUAGES[asset.language] ?? asset.language}
+                      {asset.variant ? ` · ${asset.variant}` : ""}
+                    </span>
+                  </span>
+                  <span className="ml-auto"><Badge tone={statusTone(asset.status)}>{statusLabel(asset.status)}</Badge></span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+        {canApprove && readyIds.length > 0 && (
+          <Button disabled={busy !== null || picked.length === 0} onClick={approve}>
+            {busy === "approve" ? "Approving…" : `Approve ${picked.length} ${picked.length === 1 ? "post" : "posts"}`}
+          </Button>
+        )}
+        <ErrorNote error={error} />
+      </Card>
     <div className="grid gap-4 md:grid-cols-2">
       <Card className="space-y-2 text-sm">
         <h2 className="font-semibold">Approve {productOf(campaign)} for {shopOf(campaign)}</h2>
@@ -994,13 +1107,14 @@ function ApprovalTab({ campaign, onChanged, onApproved }: { campaign: CampaignT;
         <p>Status: <Badge tone={statusTone(campaign.brain.approval.status)}>{statusLabel(campaign.brain.approval.status)}</Badge>
           {campaign.brain.approval.by && <span className="text-xs text-slate-600"> by {campaign.brain.approval.by}</span>}</p>
         <p className="text-xs text-slate-600">{campaign.summary?.verified ?? 0} verified, {campaign.summary?.failed ?? 0} failed, {campaign.summary?.stale ?? 0} out of date.</p>
-        {canApprove && campaign.status !== "approved" && <Button disabled={busy !== null} onClick={approve}>{busy === "approve" ? "Approving…" : `Approve ${campaign.summary?.selected_assets ?? 0} posts`}</Button>}
-        <ErrorNote error={error} />
       </Card>
       <Card className="space-y-2 text-sm">
         <h2 className="font-semibold">Your facts</h2>
         {campaign.brain.brief?.product && <p><span className="text-slate-600">Promoting: </span><b>{campaign.brain.brief.product}</b></p>}
         {campaign.brain.brief?.highlights && <p><span className="text-slate-600">What makes you special: </span><b>{campaign.brain.brief.highlights}</b></p>}
+        {(campaign.brain.files ?? []).length > 0 && (
+          <p><span className="text-slate-600">Attached: </span>{(campaign.brain.files ?? []).map((f) => f.filename).join(", ")}</p>
+        )}
         <div className="grid grid-cols-2 gap-1 text-xs">
           {factRows(campaign.brain.offer).map((row) => (
             <div key={row.label}><span className="text-slate-600">{row.label}: </span><b>{row.value}</b></div>))}
@@ -1013,18 +1127,77 @@ function ApprovalTab({ campaign, onChanged, onApproved }: { campaign: CampaignT;
         <Button kind="ghost" disabled={busy !== null} onClick={changeFacts}>{busy === "facts" ? "Applying…" : "Apply change"}</Button>
       </Card>
     </div>
+    </div>
   );
 }
 
-function PublishingTab({ campaign, notice, onGoto }: { campaign: CampaignT; notice: string; onGoto: (tab: Tab) => void }) {
+function jobNote(job: import("../lib/types").PublishJob, connected: SocialAccount[]): string {
+  if (!job.error) return "";
+  const live = connected.some((a) => a.target_platform === job.platform);
+  if (live && /disconnect/i.test(job.error)) return ` — ${job.platform} is connected. Press Retry to send this post there.`;
+  return ` — ${job.error}`;
+}
+
+function PublishingTab({ campaign, notice, onGoto, onEdit }: { campaign: CampaignT; notice: string; onGoto: (tab: Tab) => void; onEdit: (asset: Asset) => void }) {
   const qc = useQueryClient();
   const jobs = useQuery({ queryKey: ["jobs", campaign.id], queryFn: () => api.get<import("../lib/types").PublishJob[]>(`/campaigns/${campaign.id}/publish-jobs`), refetchInterval: 4000 });
   const accounts = useQuery({ queryKey: ["accounts"], queryFn: () => api.get<SocialAccount[]>("/social/accounts") });
   const [when, setWhen] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  const posts = (campaign.assets ?? []).filter((a) => a.is_selected && a.status !== "rejected");
+  const [sourceId, setSourceId] = useState(posts[0]?.id ?? "");
+  const source = posts.find((a) => a.id === sourceId) ?? posts[0];
+  const [target, setTarget] = useState("youtube");
+  const [reuseBusy, setReuseBusy] = useState<string | null>(null);
+  const [reuseError, setReuseError] = useState<unknown>(null);
+  const [reuseNote, setReuseNote] = useState("");
   const approved = ["approved", "publishing", "published"].includes(campaign.status);
   const connected = accounts.data ?? [];
+  async function sendElsewhere() {
+    if (!source) return;
+    setReuseError(null);
+    setReuseNote("");
+    setReuseBusy("send");
+    try {
+      const created = await api.post<Asset>(`/assets/${source.id}/reuse`, { mode: "another_platform", platform: target });
+      const account = connected.find((a) => a.target_platform === target);
+      if (account) {
+        await api.post(`/campaigns/${campaign.id}/publish`, { items: [{ asset_id: created.id, social_account_id: account.id }] });
+        setReuseNote(`The same picture is on its way to ${PLATFORM_LABELS[target] ?? target}.`);
+      } else {
+        setReuseNote(`${PLATFORM_LABELS[target] ?? target} has this picture and caption. Connect that account, then press Publish.`);
+      }
+      await qc.invalidateQueries({ queryKey: ["campaign", campaign.id] });
+      qc.invalidateQueries({ queryKey: ["jobs", campaign.id] });
+    } catch (e) { setReuseError(e); } finally { setReuseBusy(null); }
+  }
+  async function postAgain() {
+    if (!source) return;
+    setReuseError(null);
+    setReuseNote("");
+    const account = connected.find((a) => a.target_platform === source.platform);
+    if (!account) {
+      setReuseError(new Error(`Connect ${PLATFORM_LABELS[source.platform] ?? source.platform} on Accounts, then post again.`));
+      return;
+    }
+    setReuseBusy("again");
+    try {
+      await api.post(`/campaigns/${campaign.id}/publish`, { repost: true, items: [{ asset_id: source.id, social_account_id: account.id }] });
+      qc.invalidateQueries({ queryKey: ["jobs", campaign.id] });
+      setReuseNote("Posted again with the current picture and words.");
+    } catch (e) { setReuseError(e); } finally { setReuseBusy(null); }
+  }
+  async function makeVersion() {
+    if (!source) return;
+    setReuseError(null);
+    setReuseBusy("create");
+    try {
+      const created = await api.post<Asset>(`/assets/${source.id}/reuse`, { mode: "create" });
+      await qc.invalidateQueries({ queryKey: ["campaign", campaign.id] });
+      onEdit(created);
+    } catch (e) { setReuseError(e); } finally { setReuseBusy(null); }
+  }
   async function publish() {
     setError(null);
     setBusy(true);
@@ -1058,11 +1231,42 @@ function PublishingTab({ campaign, notice, onGoto }: { campaign: CampaignT; noti
         )}
         <ErrorNote error={error} />
       </Card>
+      {approved && source && (
+        <Card className="space-y-3 text-sm">
+          <h2 className="font-semibold">Use this post again</h2>
+          <p className="text-slate-600">Send the same picture and words to YouTube, X, or another platform. Edit this post and post it again, or start a new version.</p>
+          <label className="block text-xs text-slate-600">
+            Post
+            <select className={`${fieldCls} mt-1 block`} value={source.id} onChange={(e) => setSourceId(e.target.value)}>
+              {posts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {(a.content.headline || FORMAT_NAMES[a.format] || a.format)} · {PLATFORM_LABELS[a.platform] ?? a.platform} · {LANGUAGES[a.language] ?? a.language}
+                </option>
+              ))}
+            </select>
+          </label>
+          {source.media_url && <img src={source.media_url} alt="" className="h-28 rounded-lg object-cover" />}
+          <label className="block text-xs text-slate-600">
+            Also post on
+            <select className={`${fieldCls} mt-1 block`} value={target} onChange={(e) => setTarget(e.target.value)}>
+              {PLATFORMS.map((p) => <option key={p} value={p}>{PLATFORM_LABELS[p]}</option>)}
+            </select>
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={reuseBusy !== null} onClick={sendElsewhere}>{reuseBusy === "send" ? "Sending…" : "Post this picture there"}</Button>
+            <Button kind="ghost" disabled={reuseBusy !== null} onClick={() => onEdit(source)}>Edit this post</Button>
+            <Button kind="ghost" disabled={reuseBusy !== null} onClick={postAgain}>{reuseBusy === "again" ? "Posting…" : "Post again"}</Button>
+            <Button kind="ghost" disabled={reuseBusy !== null} onClick={makeVersion}>{reuseBusy === "create" ? "Creating…" : "Create a new version"}</Button>
+          </div>
+          {reuseNote && <p className="text-sm text-emerald-800">{reuseNote}</p>}
+          <ErrorNote error={reuseError} />
+        </Card>
+      )}
       {(jobs.data ?? []).map((j) => (
         <Card key={j.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
           <div>
             <b className="capitalize">{j.platform}</b> {j.simulated && <Badge tone="amber">Simulated</Badge>}
-            <div className="text-xs text-slate-600">{j.result?.url || j.external_post_id || ""}{j.error ? ` — ${j.error}` : ""}</div>
+            <div className="text-xs text-slate-600">{j.result?.url || j.external_post_id || ""}{jobNote(j, connected)}</div>
           </div>
           <div className="flex items-center gap-2">
             <Badge tone={statusTone(j.status)}>{statusLabel(j.status)}</Badge>

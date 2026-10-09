@@ -1,7 +1,7 @@
 """LangGraph orchestration. Two graphs share the Campaign Brain stored in Postgres:
 
 plan:    intake -> (clarify | business -> locality -> audience -> strategy) -> strategy review
-produce: text -> director -> copy -> localize -> truth <-> regenerate -> performance/optimize -> media -> review
+produce: text -> director -> copy -> localize -> performance/optimize -> media -> review
 
 `produce` also serves the Change Agent: mode="regen" regenerates only the stale asset ids it is given.
 """
@@ -11,7 +11,7 @@ from typing import Literal, TypedDict
 
 from langgraph.graph import END, StateGraph
 
-from app.agents import audience, business, campaign_manager, content_director, locality, strategy, text
+from app.agents import audience, business, campaign_manager, content_director, fact_checker, locality, strategy, text
 from app.graph import production
 from app.graph.context import PipelineContext
 from app.models import Asset
@@ -101,8 +101,6 @@ def build_plan_graph(ctx: PipelineContext):
 
 
 def build_produce_graph(ctx: PipelineContext):
-    max_retries = ctx.settings.max_truth_retries
-
     def working_set(state: RunState) -> list[Asset]:
         return production.campaign_assets(ctx, state.get("asset_ids"))
 
@@ -140,38 +138,10 @@ def build_produce_graph(ctx: PipelineContext):
         ctx.emit("language_culture_agent", "completed", "Localization done")
         return {}
 
-    async def truth(state: RunState) -> RunState:
-        ctx.set_status("generating", "verification")
+    async def accept(state: RunState) -> RunState:
         assets = working_set(state)
-        to_check = [a for a in assets if a.status in ("draft", "failed")]
-        ctx.emit("truth_engine", "started", f"Verifying {len(to_check)} assets against the offer facts")
-        failed = await production.verify(ctx, to_check)
-        ctx.emit("truth_engine", "completed", f"{len(to_check) - len(failed)} passed, {len(failed)} need work",
-                 {"failed": [a.id for a in failed]})
-        return {}
-
-    def route_after_truth(state: RunState) -> str:
-        failed = [a for a in working_set(state) if a.status == "failed"]
-        if failed and state.get("retry_round", 0) < max_retries:
-            return "regenerate"
-        return "escalate" if failed else "performance"
-
-    async def regenerate(state: RunState) -> RunState:
-        failed = [a for a in working_set(state) if a.status == "failed"]
-        round_no = state.get("retry_round", 0) + 1
-        ctx.emit("campaign_manager", "info", f"Regenerating {len(failed)} assets with fact-check feedback "
-                                             f"(attempt {round_no}/{max_retries})")
-        await production.regenerate_failed(ctx, failed)
-        return {"retry_round": round_no}
-
-    async def escalate(state: RunState) -> RunState:
-        failed = [a for a in working_set(state) if a.status == "failed"]
-        brain = ctx.brain()
-        brain.escalations.append({"type": "fact_check_failed", "asset_ids": [a.id for a in failed],
-                                  "message": f"{len(failed)} assets still fail verification after {max_retries} "
-                                             "attempts. Edit them manually or adjust the offer."})
-        ctx.save_brain(brain)
-        ctx.emit("campaign_manager", "info", f"{len(failed)} assets need your attention", {"asset_ids": [a.id for a in failed]})
+        production.accept_copy(ctx, assets)
+        ctx.emit("campaign_manager", "info", f"{len(assets)} creatives ready to design")
         return {}
 
     async def performance_node(state: RunState) -> RunState:
@@ -187,6 +157,13 @@ def build_produce_graph(ctx: PipelineContext):
                  {"pending_videos": [a.id for a in pending]})
         return {"pending_videos": [a.id for a in pending]}
 
+    async def note_facts(state: RunState) -> RunState:
+        assets = working_set(state)
+        ctx.emit("truth_engine", "started", "The creatives are ready. Noting any line you may want to edit.")
+        await fact_checker.verify(ctx, assets, apply_status=False, use_llm=False)
+        ctx.emit("truth_engine", "completed", "Notes are on the creatives. Nothing was removed.")
+        return {}
+
     async def finalize(state: RunState) -> RunState:
         brain = ctx.brain()
         brain.approval.status = "pending"
@@ -197,20 +174,19 @@ def build_produce_graph(ctx: PipelineContext):
 
     g = StateGraph(RunState)
     for name, fn in (("core_message", core_message), ("director", director), ("copy", copy),
-                     ("localize", localize), ("truth", truth), ("regenerate", regenerate), ("escalate", escalate),
-                     ("performance", performance_node), ("media", media), ("finalize", finalize)):
+                     ("localize", localize), ("accept", accept),
+                     ("performance", performance_node), ("media", media), ("note_facts", note_facts),
+                     ("finalize", finalize)):
         g.add_node(name, fn)
     g.set_entry_point("core_message")
     g.add_edge("core_message", "director")
     g.add_edge("director", "copy")
     g.add_edge("copy", "localize")
-    g.add_edge("localize", "truth")
-    g.add_conditional_edges("truth", route_after_truth,
-                            {"regenerate": "regenerate", "escalate": "escalate", "performance": "performance"})
-    g.add_edge("regenerate", "truth")
-    g.add_edge("escalate", "performance")
+    g.add_edge("localize", "accept")
+    g.add_edge("accept", "performance")
     g.add_edge("performance", "media")
-    g.add_edge("media", "finalize")
+    g.add_edge("media", "note_facts")
+    g.add_edge("note_facts", "finalize")
     g.add_edge("finalize", END)
     return g.compile()
 

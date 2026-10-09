@@ -58,6 +58,13 @@ export interface Strategy {
   rationale: string;
   accepted: boolean;
 }
+export interface OwnerFile {
+  url: string;
+  filename: string;
+  kind: "image" | "text" | "audio" | "file";
+  role: "logo" | "sample" | "note" | "voice" | "file";
+  text?: string | null;
+}
 export interface Brief {
   product?: string;
   audience?: string;
@@ -71,6 +78,7 @@ export interface Brief {
 }
 export interface Brain {
   brief?: Brief;
+  files?: OwnerFile[];
   requested_languages?: string[];
   content_mode: string;
   objective: string;
@@ -85,6 +93,7 @@ export interface Brain {
 
 export interface Asset {
   id: string;
+  campaign_id?: string;
   platform: string;
   format: string;
   language: string;
@@ -111,7 +120,7 @@ export interface Asset {
   cultural_notes: string | null;
   media_url: string | null;
   media_status: string | null;
-  verification: { status?: string; score?: number; issues?: { code: string; detail: string; severity: string }[] };
+  verification: { status?: string; score?: number; verdict?: string; owner_accepted?: boolean; issues?: { code?: string; detail?: string; severity?: string; found?: string; expected?: string }[] };
   prediction: { label?: string; predicted_impact?: number; platform_fit?: number; local_relevance?: number; predicted_score?: number };
   attempts: number;
   brain_version: number;
@@ -170,6 +179,7 @@ export interface SocialAccount {
   active: boolean;
   target_platform: string;
   simulated: boolean;
+  kind?: string | null;
 }
 export interface PublishJob {
   id: string;
@@ -237,4 +247,7 @@ export const LANGUAGES: Record<string, string> = {
   pt: "Portuguese",
   id: "Indonesian",
 };
-export const PLATFORMS = ["instagram", "whatsapp", "facebook", "linkedin"] as const;
+export const PLATFORMS = ["instagram", "whatsapp", "facebook", "linkedin", "youtube", "x"] as const;
+export const PLATFORM_LABELS: Record<string, string> = {
+  instagram: "Instagram", whatsapp: "WhatsApp", facebook: "Facebook", linkedin: "LinkedIn", youtube: "YouTube", x: "X",
+};

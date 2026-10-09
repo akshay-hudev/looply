@@ -20,6 +20,23 @@ def account_targets(account: SocialAccount) -> str:
     return (account.meta or {}).get("target_platform", account.platform) if account.platform == "mock" else account.platform
 
 
+def live_account(db: Session, job: PublishJob, account: SocialAccount | None) -> SocialAccount | None:
+    """Use the linked account, or the Page connected now if that login was replaced."""
+    if account and account.active and account.org_id == job.org_id:
+        return account
+    campaign = db.get(Campaign, job.campaign_id)
+    business_id = campaign.business_id if campaign else None
+    rows = list(db.scalars(select(SocialAccount).where(
+        SocialAccount.org_id == job.org_id, SocialAccount.active.is_(True))))
+    matches = [a for a in rows if account_targets(a) == job.platform and a.business_id in (None, business_id)]
+    real = [a for a in matches if a.platform != "mock"]
+    chosen = (real or matches)[:1]
+    if not chosen:
+        return None
+    job.social_account_id = chosen[0].id
+    return chosen[0]
+
+
 def refresh_campaign_status(db: Session, campaign_id: str) -> None:
     jobs = list(db.scalars(select(PublishJob).where(PublishJob.campaign_id == campaign_id)))
     c = db.get(Campaign, campaign_id)
@@ -39,12 +56,12 @@ async def execute_job(db: Session, job: PublishJob) -> PublishJob:
     if job.status not in ("queued", "scheduled"):
         return job
     asset = db.get(Asset, job.asset_id)
-    account = db.get(SocialAccount, job.social_account_id)
+    account = live_account(db, job, db.get(SocialAccount, job.social_account_id))
     reason = None
     if asset is None or asset.status != "approved":
         reason = "Asset is not approved by the owner"
-    elif account is None or not account.active:
-        reason = "Social account is disconnected"
+    elif account is None:
+        reason = "This login was replaced. Connect the Page on Accounts, then press Retry."
     elif account.org_id != job.org_id or asset.org_id != job.org_id:
         reason = "Account does not belong to this organization"
     if reason:

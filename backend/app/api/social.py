@@ -17,7 +17,9 @@ from app.models import Business, PublishJob, SocialAccount, WhatsAppContact, Wha
 from app.services import oauth_service
 
 router = APIRouter(prefix="/social", tags=["social"])
-PLATFORMS = ("instagram", "facebook", "whatsapp", "linkedin")
+PLATFORMS = ("instagram", "facebook", "whatsapp", "linkedin", "youtube", "x")
+_PLATFORM_RE = "^(" + "|".join(PLATFORMS) + ")$"
+_DISPLAY = {"youtube": "YouTube", "x": "X"}
 
 
 def account_out(a: SocialAccount) -> dict:
@@ -40,7 +42,8 @@ def providers(ctx: OrgContext = Depends(get_org_context)):
     meta = bool(s.meta_app_id and s.meta_app_secret)
     linkedin = bool(s.linkedin_client_id and s.linkedin_client_secret)
     return {"instagram": {"login": meta, "via": "Instagram"}, "facebook": {"login": meta, "via": "Facebook"},
-            "whatsapp": {"login": meta, "via": "Facebook"}, "linkedin": {"login": linkedin, "via": "LinkedIn"}}
+            "whatsapp": {"login": meta, "via": "Facebook"}, "linkedin": {"login": linkedin, "via": "LinkedIn"},
+            "youtube": {"login": False, "via": "YouTube"}, "x": {"login": False, "via": "X"}}
 
 
 @router.delete("/accounts/{account_id}", status_code=204)
@@ -52,7 +55,7 @@ def disconnect(account_id: str, ctx: OrgContext = Depends(require_admin)):
 
 
 class MockIn(BaseModel):
-    target_platform: str = Field(pattern="^(instagram|facebook|whatsapp|linkedin)$")
+    target_platform: str = Field(pattern=_PLATFORM_RE)
     business_id: str | None = None
     simulate_failure: bool = False
 
@@ -64,7 +67,7 @@ def connect_mock(body: MockIn, ctx: OrgContext = Depends(require_admin)):
         get_owned(ctx, Business, body.business_id)
     a = SocialAccount(org_id=ctx.org_id, business_id=body.business_id, platform="mock",
                       external_id=f"mock-{body.target_platform}-{new_id()[:12]}",
-                      display_name=f"Demo {body.target_platform.title()} (simulated)",
+                      display_name=f"Demo {_DISPLAY.get(body.target_platform, body.target_platform.title())} (simulated)",
                       meta={"target_platform": body.target_platform, "fail": body.simulate_failure})
     ctx.db.add(a)
     ctx.db.commit()
@@ -72,7 +75,7 @@ def connect_mock(body: MockIn, ctx: OrgContext = Depends(require_admin)):
 
 
 class TokenIn(BaseModel):
-    platform: str = Field(pattern="^(instagram|facebook|whatsapp|linkedin)$")
+    platform: str = Field(pattern=_PLATFORM_RE)
     access_token: str = Field(min_length=8)
     external_id: str = Field(min_length=2, description="Instagram account id, Facebook page id, WhatsApp phone number id, or LinkedIn URN")
     display_name: str = ""

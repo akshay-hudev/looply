@@ -10,7 +10,7 @@ import { Button, DocumentTitle, ErrorNote, focusCls } from "../lib/ui";
 const WAITING = new Set(["clarifying", "strategy_review", "review"]);
 const JOURNEY = ["Plan", "Your posts", "Approve", "Publish"];
 const PLATFORM_NAME: Record<string, string> = {
-  instagram: "Instagram", whatsapp: "WhatsApp", facebook: "Facebook", linkedin: "LinkedIn",
+  instagram: "Instagram", whatsapp: "WhatsApp", facebook: "Facebook", linkedin: "LinkedIn", youtube: "YouTube", x: "X",
 };
 const NATIVE: Record<string, string> = {
   en: "EN", hi: "हिन्दी", kn: "ಕನ್ನಡ", ta: "தமிழ்", te: "తెలుగు", mr: "मराठी", bn: "বাংলা",
@@ -170,8 +170,8 @@ export default function Campaigns() {
       {rows.length === 0 && (
         <p className="text-sm text-slate-600">
           {shops.length === 0
-            ? "Add your business first. Then describe one promotion and LocalMind drafts it in your customers' language."
-            : "No campaigns yet. Describe one promotion and LocalMind drafts it in your customers' language."}
+            ? "Add your business first. Then describe one promotion and Looply drafts it in your customers' language."
+            : "No campaigns yet. Describe one promotion and Looply drafts it in your customers' language."}
         </p>
       )}
       {sections.map((section) => {

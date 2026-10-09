@@ -7,9 +7,12 @@ from sqlalchemy import delete, select
 
 from app.agents import fact_checker, language_culture, optimizer, performance, platform, video, visual
 from app.agents.copy import AssetCopy, copy_from_content
+from app.content.templates import stamp
 from app.graph.context import PipelineContext
 from app.graph.state import FORMAT_CATALOG, asset_fact_keys
 from app.models import Asset, AssetDependency
+from app.services.creative_renderer import compose_image
+from app.services.media_service import MediaService
 
 GroupKey = tuple[str, str, str]  # platform, format, language
 
@@ -36,7 +39,7 @@ def _write_dependencies(ctx: PipelineContext, assets: list[Asset]) -> None:
 
 
 def _set_copy(asset: Asset, copy: AssetCopy, *, source: AssetCopy) -> None:
-    keep = {k: v for k, v in (asset.content or {}).items() if k in ("aspect_ratio",)}
+    keep = {k: v for k, v in (asset.content or {}).items() if k in ("aspect_ratio", "template")}
     asset.content = {**keep, **copy.model_dump(), "source_en": source.model_dump()}
 
 
@@ -62,6 +65,7 @@ async def create_copy(ctx: PipelineContext) -> list[Asset]:
                               format=fmt, language=lang, kind=FORMAT_CATALOG[platform_name][fmt], variant=v.label,
                               brain_version=brain.version, status="draft" if lang == "en" else "pending_localization")
                     _set_copy(a, master, source=master)
+                    a.content = {**(a.content or {}), "template": stamp(brain, fmt, v.label)}
                     created.append(a)
         ctx.emit("platform_agent", "completed", f"{platform_name}: {sum(len(v) for v in by_format.values())} variants")
     ctx.db.add_all(created)
@@ -91,6 +95,7 @@ async def recreate_copy(ctx: PipelineContext, assets: list[Asset], feedback: dic
             master = AssetCopy.model_validate(v.model_dump(exclude={"label"}))
             user_corr = (a.content or {}).get("user_correction")
             _set_copy(a, master, source=master)
+            a.content = {**(a.content or {}), "template": stamp(brain, a.format, a.variant)}
             if user_corr:
                 a.content = {**(a.content or {}), "user_correction": user_corr}
             a.status = "draft" if a.language == "en" else "pending_localization"
@@ -122,8 +127,41 @@ async def localize(ctx: PipelineContext, assets: list[Asset], feedback: dict[str
     ctx.db.commit()
 
 
+def attach_previews(ctx: PipelineContext, assets: list[Asset]) -> None:
+    """Give every visual a picture as soon as the copy exists, before the image model finishes."""
+    media = MediaService(ctx.settings)
+    brain = ctx.brain()
+    changed = False
+    for asset in assets:
+        if asset.media_url or asset.status == "rejected" or asset.kind == "text" or asset.format == "message":
+            continue
+        if asset.kind == "video":
+            video.storyboard(ctx, asset, media)
+            changed = True
+            continue
+        if asset.kind != "image":
+            continue
+        svg = compose_image(asset.format, visual.creative_copy(asset, brain))
+        asset.media_url = media.put(svg.encode("utf-8"), org_id=asset.org_id, ext="svg")
+        asset.media_status = "ready"
+        asset.content = {**(asset.content or {}), "media_source": "composed"}
+        changed = True
+    if changed:
+        ctx.db.commit()
+
+
+def accept_copy(ctx: PipelineContext, assets: list[Asset]) -> None:
+    """Keep the written copy. Fact-checking is off so a line is not sent back for a rewrite."""
+    for asset in assets:
+        if asset.status in ("draft", "failed", "stale"):
+            asset.status = "verified"
+    ctx.db.commit()
+    attach_previews(ctx, assets)
+
+
 async def verify(ctx: PipelineContext, assets: list[Asset]) -> list[Asset]:
     await fact_checker.verify(ctx, assets)
+    attach_previews(ctx, assets)
     return [a for a in assets if a.status == "failed"]
 
 
@@ -158,11 +196,13 @@ async def predict_and_optimize(ctx: PipelineContext, assets: list[Asset]) -> Non
 async def generate_media(ctx: PipelineContext, assets: list[Asset]) -> list[Asset]:
     """Image generation inline; video submitted and left for the poller. Returns pending video assets."""
     selected = [a for a in assets if a.is_selected and a.status == "verified"]
+    attach_previews(ctx, selected)
     images = [a for a in selected if a.kind == "image"]
     videos = [a for a in selected if a.kind == "video"]
     for a in images:
         ctx.emit("visual_agent", "started", f"Creating {a.platform} {a.format} image ({a.language})")
     await asyncio.gather(*(visual.generate(ctx, a) for a in images))
+    attach_previews(ctx, [a for a in assets if not a.media_url and a.kind in ("image", "video")])
     for a in videos:
         ctx.emit("video_agent", "started", f"Submitting {a.platform} {a.format} video ({a.language})")
         await video.submit(ctx, a)

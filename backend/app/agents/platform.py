@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from app.agents.base import call_agent, creative_context
 from app.agents.copy import AssetCopy
+from app.content.templates import choose
 from app.graph.context import PipelineContext
 from app.graph.state import CampaignBrain
 
@@ -37,6 +38,13 @@ def _payload(brain: CampaignBrain, platform: str, formats: list[str], feedback: 
                      "insights": [i.model_dump() for i in brain.locality.insights]},
         "tone": brain.strategy.tone,
         "briefs": [b.model_dump() for b in brain.briefs if b.platform == platform and b.format in formats],
+        "variant_templates": {fmt: choose(brain, fmt) for fmt in formats},
+        "template_instruction": (
+            "Variant A must follow template A, B follows B, C follows C. "
+            "Keep that template's roles, order and beat timing. "
+            "The host states the claim, the customer states the feeling, the narrator states the fact, "
+            "and the product never speaks. Write new lines for this business. Do not copy a sample line."
+        ),
     }
     if feedback:
         payload["previous_attempt_failed_fact_check"] = feedback

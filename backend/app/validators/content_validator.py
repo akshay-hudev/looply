@@ -14,6 +14,9 @@ LIMITS = {
     ("whatsapp", "offer_card"): {"headline": 80},
     ("linkedin", "post"): {"body": 3000, "hashtags": 5},
     ("facebook", "post"): {"body": 5000, "hashtags": 10},
+    ("youtube", "post"): {"body": 5000, "hashtags": 15},
+    ("youtube", "short"): {"body": 100, "hashtags": 15},
+    ("x", "post"): {"body": 280, "hashtags": 4},
 }
 
 URL_SHORTENERS = re.compile(r"\b(bit\.ly|tinyurl\.com|goo\.gl|t\.co|is\.gd)/", re.IGNORECASE)

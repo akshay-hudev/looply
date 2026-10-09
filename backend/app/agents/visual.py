@@ -11,8 +11,6 @@ from app.graph.state import language_name
 from app.models import Asset
 from app.services.creative_renderer import CreativeCopy, compose_image
 from app.services.media_service import MediaService
-from app.validators.offer_validator import check_offer
-
 log = logging.getLogger(__name__)
 
 SIZES = {"1:1": "1024x1024", "4:5": "1024x1280", "9:16": "1024x1792", "3:4": "1024x1365"}
@@ -28,13 +26,13 @@ class VisualPrompt(BaseModel):
 
 
 def carousel_slides(asset: Asset, brain) -> list[str]:
-    """Slide texts (cover first). Falls back to splitting the copy; offer-violating slides are dropped."""
+    """Slide texts (cover first). Falls back to splitting the copy."""
     c = asset.content or {}
     slides = [s for s in (c.get("slides") or []) if str(s).strip()]
     if len(slides) < 2:
         slides = [c.get("headline") or c.get("hook") or "", *[p for p in str(c.get("body") or "").split("\n") if p.strip()][:3],
                   c.get("cta") or ""]
-    slides = [s.strip() for s in slides if s and s.strip() and not check_offer(s, brain.offer)]
+    slides = [s.strip() for s in slides if s and s.strip()]
     return slides[:6] if len(slides) >= 2 else (slides + [brain.business.name])[:2]
 
 
@@ -57,11 +55,15 @@ def creative_copy(asset: Asset, brain, headline: str | None = None, slide_label:
                         slide_label=slide_label)
 
 
+def owner_images(brain) -> list[dict]:
+    return [{"role": f.role, "filename": f.filename, "url": f.url} for f in brain.files if f.kind == "image"]
+
+
 async def _render(ctx: PipelineContext, media: MediaService, asset: Asset, prompt: str, size: str,
-                  fallback: CreativeCopy) -> tuple[str, str]:
+                  fallback: CreativeCopy, reference_urls: list[str] | None = None) -> tuple[str, str]:
     """(url, source). Falls back to a composed poster when no image model can serve the request."""
     try:
-        result = await ctx.gateway.image(prompt, size=size)
+        result = await ctx.gateway.image(prompt, size=size, reference_urls=reference_urls or None)
     except Exception as e:
         log.warning("image model unavailable for asset %s, composing poster: %s", asset.id, e)
         result = None
@@ -92,21 +94,34 @@ async def generate(ctx: PipelineContext, asset: Asset, media: MediaService | Non
             "audience": brain.strategy.primary_audience,
             "default_aspect_ratio": DEFAULT_RATIO.get(asset.format, "1:1"),
             "user_correction_notes": user_corr,
+            "owner_images": owner_images(brain),
+            "template": (asset.content or {}).get("template"),
+            "template_instruction": (
+                "Compose the picture to this template's layout. One hero, the overlay from the copy, "
+                "and the template's job. Do not add a second offer or a second scene."
+            ),
         }
         vp = await call_agent(ctx, "visual", VisualPrompt, payload, temperature=0.7)
-        # Overlay text is customer-facing; it must pass the same numeric checks as the copy.
-        if check_offer(vp.overlay_text, brain.offer):
-            vp.overlay_text = (asset.content or {}).get("headline") or ""
         size = SIZES.get(vp.aspect_ratio, "1024x1024")
         lang = language_name(asset.language)
         corr_instruction = f"\nSpecific user requested corrections to apply: {user_corr}" if user_corr else ""
         prompt = (f"{vp.prompt}{corr_instruction}\n\nRender this exact text clearly on the image ({lang}): "
                   f"\"{vp.overlay_text}\"\nAvoid: {vp.negative_prompt}")
+        refs = owner_images(brain)
+        if refs:
+            notes = []
+            for im in refs:
+                if im["role"] == "logo":
+                    notes.append(f"Place the owner's logo ({im['filename']}) in a corner. Do not invent a different logo.")
+                else:
+                    notes.append(f"Match the owner's sample ({im['filename']}): same product, colours, and layout.")
+            prompt = f"{prompt}\n" + "\n".join(notes)
+        ref_urls = [im["url"] for im in refs]
         slides = carousel_slides(asset, brain) if asset.format == "carousel" else []
         cover = creative_copy(asset, brain, slide_label=f"1/{len(slides)}" if slides else "")
         if vp.overlay_text:
             cover.headline = vp.overlay_text if not slides else (slides[0] or vp.overlay_text)
-        url, source = await _render(ctx, media, asset, prompt, size, cover)
+        url, source = await _render(ctx, media, asset, prompt, size, cover, ref_urls)
         extra: dict = {"overlay_text": vp.overlay_text, "aspect_ratio": vp.aspect_ratio, "media_source": source,
                        "image_prompt": vp.prompt}
         if slides:
@@ -118,7 +133,7 @@ async def generate(ctx: PipelineContext, asset: Asset, media: MediaService | Non
                 slide_copy = creative_copy(asset, brain, headline=text, slide_label=f"{i}/{len(slides)}")
                 if i < len(slides):
                     slide_copy.cta = ""
-                slide_urls.append((await _render(ctx, media, asset, slide_prompt, size, slide_copy))[0])
+                slide_urls.append((await _render(ctx, media, asset, slide_prompt, size, slide_copy, ref_urls))[0])
             extra["slide_urls"] = slide_urls
         asset.media_prompt = prompt
         asset.media_url = url

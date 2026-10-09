@@ -36,6 +36,12 @@ def test_wrong_price_and_date():
     assert types(check_offer("Offer valid till 20 Oct", OFFER)) == ["date_mismatch"]
 
 
+def test_iso_locked_date_accepts_12_october():
+    offer = OfferFacts(product="AVIS", start_date="2026-10-12")
+    assert check_offer("Dussehra special opening on 12 October 2026", offer) == []
+    assert types(check_offer("Opening on 20 October 2026", offer)) == ["date_mismatch"]
+
+
 def test_unsupported_claims():
     assert types(check_claims("Best coffee in Bengaluru", [])) == ["unsupported_claim"]
     assert check_claims("Best coffee in Bengaluru", ["Best coffee in Bengaluru (Times Food Award 2024)"]) == []

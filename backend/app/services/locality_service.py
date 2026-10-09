@@ -9,7 +9,7 @@ from app.core.config import Settings, get_settings
 from app.graph.state import LocalityContext, LocalitySignal
 
 log = logging.getLogger(__name__)
-USER_AGENT = "LocalMind/0.1 (local business marketing assistant)"
+USER_AGENT = "Looply/0.1 (local business marketing assistant)"
 
 # OSM tag filters per signal type (Overpass QL fragments, applied to nodes/ways within radius).
 OSM_SIGNALS: dict[str, list[str]] = {

@@ -1,0 +1,229 @@
+# Content templates with the job each one is for.
+# Structures follow current story, poster and short-video practice:
+# one message per story frame, one focal poster, a reel that hooks in 2 seconds
+# and can be watched on mute. Sample lines are shapes, not copy to reuse.
+
+sources:
+  - "https://www.adstellar.ai/blog/instagram-story-ad-format-guide"
+  - "https://sproutsocial.com/insights/instagram-story-ads/"
+  - "https://admanage.ai/blog/instagram-stories-ads-examples"
+  - "https://www.shapinfinity.com/blog/best-instagram-reels-templates"
+  - "https://inflowave.io/resources/instagram-reels-guide"
+  - "https://getstrat.io/articles/viral-formats-week-of-2026-10-05/"
+
+roles:
+  host: The owner or a staff member. Speaks the claim and the invitation.
+  customer: A person from the audience, in a real moment. Speaks the feeling, not the price.
+  product: The dish, drink, service or result. It does not speak. It fills the frame.
+  place: The shop, street or neighbourhood. Named, not a generic skyline.
+  narrator: Voice or on-screen type only. States the fact. Never invents a second offer.
+
+families:
+  story:
+    aspect: "9:16"
+    layout: Full-bleed vertical. One headline, one supporting line, one action. Keep type in the middle of the frame, clear of the top and bottom bars.
+    templates:
+      - id: story_single_offer
+        name: Single-offer card
+        use: A dated deal or one product the viewer should act on today.
+        when: [offer, event]
+        beats:
+          - {t: "0-5s", role: product, action: "The hero fills the frame.", line: "The offer, at most 7 words."}
+          - {t: "hold", role: place, action: "Place and date sit under the headline.", line: "Where and when."}
+          - {t: "end", role: narrator, action: "One action only.", line: "The CTA."}
+      - id: story_problem_fix
+        name: Problem then fix
+        use: Cold attention when the audience has a familiar frustration this business solves.
+        when: [awareness]
+        beats:
+          - {t: "0-2s", role: customer, action: "Show the frustrating moment, not the logo.", line: "A question they already ask."}
+          - {t: "2-5s", role: product, action: "The fix in one motion.", line: "The benefit, not a feature list."}
+          - {t: "5-8s", role: host, action: "Invite them in.", line: "One action."}
+      - id: story_quiz
+        name: Tap-to-check
+        use: A playful condition the viewer can answer about themselves, such as a number, a habit or a neighbourhood.
+        when: [offer, visit]
+        beats:
+          - {t: "0-2s", role: narrator, action: "Ask one yes-or-no question.", line: "The question only."}
+          - {t: "2-6s", role: product, action: "Reveal what a yes is worth.", line: "The offer, if they qualify."}
+          - {t: "end", role: place, action: "Say where to come.", line: "Place and date."}
+      - id: story_countdown
+        name: Countdown
+        use: A launch, festival or weekend with a real date.
+        when: [event]
+        beats:
+          - {t: "0-2s", role: narrator, action: "The date is the biggest type.", line: "The dates only."}
+          - {t: "2-6s", role: product, action: "What they get if they come.", line: "One reason."}
+          - {t: "end", role: host, action: "Ask them to save it.", line: "Save or visit."}
+      - id: story_proof
+        name: Proof card
+        use: Trust, when a real detail from the owner can stand in for a review. Do not invent quotes.
+        when: [awareness, visit]
+        beats:
+          - {t: "0-3s", role: customer, action: "A person enjoying the result.", line: "The feeling in their words, only if the owner supplied it."}
+          - {t: "3-6s", role: product, action: "The proof is the thing itself.", line: "What makes it specific."}
+          - {t: "end", role: place, action: "Where to find it.", line: "Place."}
+
+  poster:
+    aspect: "3:4"
+    layout: One dominant picture. Big type. A badge for the offer if there is one. Date and place in small type. No second idea.
+    templates:
+      - id: poster_hero
+        name: Hero product
+        use: Introducing one dish, drink or service as the thing to remember.
+        when: [awareness, visit]
+        beats:
+          - {t: "frame", role: product, action: "Product occupies most of the frame, shot close.", line: "Campaign line, at most 6 words."}
+          - {t: "foot", role: place, action: "Name and neighbourhood along the bottom.", line: "Place."}
+      - id: poster_offer_badge
+        name: Offer badge
+        use: A price or discount that should be readable from a phone in a feed.
+        when: [offer]
+        beats:
+          - {t: "frame", role: product, action: "Product on one side, empty space for type on the other.", line: "The offer as a short badge."}
+          - {t: "foot", role: narrator, action: "Dates and any condition in one line.", line: "When it applies."}
+      - id: poster_event
+        name: Event announcement
+        use: A launch, opening or festival where the date is the news.
+        when: [event]
+        beats:
+          - {t: "frame", role: place, action: "The room, the table or the street, ready for the day.", line: "The occasion."}
+          - {t: "foot", role: narrator, action: "Date is larger than the body copy.", line: "Date and place."}
+      - id: poster_local
+        name: Neighbourhood poster
+        use: Making a new or quiet place feel findable to people nearby.
+        when: [awareness]
+        beats:
+          - {t: "frame", role: place, action: "A recognisable local setting, not a stock skyline.", line: "Area name."}
+          - {t: "foot", role: product, action: "One signature item in the corner.", line: "What you come for."}
+      - id: poster_menu
+        name: Short menu
+        use: A new menu when the owner named more than one item. Three items maximum.
+        when: [visit]
+        beats:
+          - {t: "head", role: narrator, action: "One title for the menu.", line: "The launch line."}
+          - {t: "list", role: product, action: "Up to three items, each one line.", line: "Item names the owner gave."}
+          - {t: "foot", role: place, action: "Where and when.", line: "Place and date."}
+
+  reel:
+    aspect: "9:16"
+    layout: 8 to 15 seconds. Hook by 2 seconds. On-screen words under 6 per beat so it works on mute. Hard cuts. One role speaks per beat.
+    templates:
+      - id: reel_sensory
+        name: Sensory montage
+        use: Food, drink or a place whose appeal is texture, sound and light.
+        when: [awareness, visit]
+        beats:
+          - {t: "0-2s", role: product, action: "Extreme close-up in motion. Steam, pour, fire, hands.", line: "Two-word hook."}
+          - {t: "2-6s", role: host, action: "Hands finish the thing. No speech yet.", line: "What it is."}
+          - {t: "6-10s", role: customer, action: "People at the table, natural, not posed at camera.", line: "Who it is for."}
+          - {t: "10-14s", role: narrator, action: "End card with place and offer if there is one.", line: "Place, date, offer."}
+      - id: reel_list
+        name: Three reasons
+        use: Saves and shares, when there are a few concrete reasons to come.
+        when: [visit, awareness]
+        beats:
+          - {t: "0-2s", role: narrator, action: "Say the number first.", line: "3 reasons."}
+          - {t: "2-5s", role: product, action: "Reason one, one shot.", line: "Reason one."}
+          - {t: "5-8s", role: place, action: "Reason two, one shot.", line: "Reason two."}
+          - {t: "8-12s", role: host, action: "Reason three and the invitation.", line: "Come this weekend."}
+      - id: reel_pov
+        name: Point of view
+        use: Relatability. The viewer is the customer walking in or checking the offer.
+        when: [visit, offer]
+        beats:
+          - {t: "0-2s", role: customer, action: "Camera is their eyes at the door or on the phone.", line: "POV: you found it."}
+          - {t: "2-7s", role: product, action: "What they see next.", line: "The thing in front of them."}
+          - {t: "7-12s", role: narrator, action: "The fact and the action.", line: "Offer and place."}
+      - id: reel_host
+        name: Host with cutaways
+        use: An explanation or a condition that needs a person to say it, with pictures proving it.
+        when: [offer, event]
+        beats:
+          - {t: "0-2s", role: host, action: "Eye-level, already mid-sentence. A gesture, not a logo intro.", line: "The claim."}
+          - {t: "2-6s", role: product, action: "Cutaway that proves the claim.", line: "The proof."}
+          - {t: "6-10s", role: place, action: "Wide enough to know where this is.", line: "Place."}
+          - {t: "10-14s", role: host, action: "One action to camera.", line: "The CTA."}
+      - id: reel_reveal
+        name: Reveal
+        use: A new menu, opening or transformation. Hold the result until the last third.
+        when: [event, awareness]
+        beats:
+          - {t: "0-2s", role: narrator, action: "Tease without showing the hero.", line: "Something new."}
+          - {t: "2-6s", role: host, action: "Hands or a door, still hiding the result.", line: "Wait for it."}
+          - {t: "6-11s", role: product, action: "The reveal, held long enough to read.", line: "The name of the thing."}
+          - {t: "11-15s", role: place, action: "Date and place on the end card.", line: "When and where."}
+
+  post:
+    aspect: "4:5"
+    layout: Scroll-stop picture first, caption second. The picture carries one idea. The caption adds the detail.
+    templates:
+      - id: post_scroll_stop
+        name: Scroll stop
+        use: Feed reach. The picture must make sense with the sound off.
+        when: [awareness, visit]
+        beats:
+          - {t: "image", role: product, action: "One subject, tight crop, bold overlay.", line: "The hook."}
+          - {t: "caption", role: narrator, action: "Two short lines, then the fact.", line: "Detail and CTA."}
+      - id: post_offer
+        name: Offer post
+        use: A deal that also needs a caption for the condition.
+        when: [offer]
+        beats:
+          - {t: "image", role: product, action: "Product plus an offer badge.", line: "The offer."}
+          - {t: "caption", role: narrator, action: "Explain the condition in plain words.", line: "Who it is for and until when."}
+      - id: post_local
+        name: Local hello
+        use: A new place introducing itself to the neighbourhood.
+        when: [awareness]
+        beats:
+          - {t: "image", role: place, action: "The shop in its street.", line: "Area name."}
+          - {t: "caption", role: host, action: "A welcome in the owner's voice.", line: "What to come in for."}
+
+  carousel:
+    aspect: "4:5"
+    layout: 5 slides. Slide 1 is the hook. Middle slides are one idea each. Last slide is the action. Same palette on every slide.
+    templates:
+      - id: carousel_reasons
+        name: Reasons arc
+        use: Teaching or convincing, when there is more than one reason to care.
+        when: [visit, awareness]
+        beats:
+          - {t: "1", role: narrator, action: "Hook question.", line: "Why this, why now."}
+          - {t: "2", role: product, action: "Reason one.", line: "One reason."}
+          - {t: "3", role: place, action: "Reason two.", line: "One reason."}
+          - {t: "4", role: customer, action: "The moment of use.", line: "Who it is for."}
+          - {t: "5", role: host, action: "The action.", line: "CTA, place, date."}
+      - id: carousel_menu
+        name: Menu walk
+        use: A new menu. One item per slide, then where to get it.
+        when: [visit, event]
+        beats:
+          - {t: "1", role: narrator, action: "Name the menu.", line: "The launch."}
+          - {t: "2-4", role: product, action: "One item per slide.", line: "Item name only."}
+          - {t: "5", role: place, action: "Where and when.", line: "Place, date, offer."}
+
+  offer_card:
+    aspect: "1:1"
+    layout: The offer is the design. Product, badge, date, place. Almost no sentence.
+    templates:
+      - id: card_deal
+        name: Deal card
+        use: A WhatsApp or feed card whose only job is the offer.
+        when: [offer, event]
+        beats:
+          - {t: "frame", role: product, action: "Product behind a clear badge.", line: "The offer."}
+          - {t: "foot", role: narrator, action: "Date, place, condition.", line: "The facts in one line."}
+
+  message:
+    aspect: text
+    layout: A short note from the owner. No hashtags. One ask.
+    templates:
+      - id: message_note
+        name: Owner note
+        use: A WhatsApp message to someone who already opted in.
+        when: [visit, offer, event, awareness]
+        beats:
+          - {t: "open", role: host, action: "Greet them as a person, not a blast.", line: "One warm line."}
+          - {t: "fact", role: narrator, action: "The offer and the date, plain.", line: "The facts."}
+          - {t: "ask", role: host, action: "One reply they can send.", line: "Reply YES, or the real ask."}

@@ -23,3 +23,7 @@ designer made it for this specific business, not stock art.
 
 With sparse input, choose the hero visual from the business category and product, and the setting
 from the region. Never depict items, prices or claims that are not in the input.
+
+When owner_images is present, treat those files as the owner's own material. A logo goes in a
+corner and is not redrawn as a different mark. A sample photo or poster is the product and the
+look to match: same subject, colours, and layout, adapted to this format.

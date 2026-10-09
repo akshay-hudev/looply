@@ -3,6 +3,7 @@
 from pydantic import BaseModel
 
 from app.agents.base import call_agent, creative_context
+from app.content.templates import choose
 from app.graph.context import PipelineContext
 from app.graph.state import FORMAT_CATALOG, CampaignBrain, CreativeBrief
 
@@ -32,6 +33,12 @@ async def run(ctx: PipelineContext) -> list[CreativeBrief]:
         "offer_locked": brain.offer.model_dump(),
         "brand_voice": brain.business.brand_voice,
         "assets_to_produce": [{"platform": p, "format": f, "kind": k} for p, f, k in plan],
+        "templates": {f: choose(brain, f) for _, f, _ in plan},
+        "template_instruction": (
+            "Each format lists three templates, labeled A, B and C, with the job that template is for. "
+            "Write the brief so variant A follows A, B follows B and C follows C. "
+            "Use the beats as the structure. Refill every line from this business. Do not copy a sample line."
+        ),
     }
     out = await call_agent(ctx, "content_director", BriefsOutput, payload, temperature=0.6)
     by_key = {(b.platform.lower(), b.format.lower()): b for b in out.briefs}

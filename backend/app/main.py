@@ -47,7 +47,7 @@ async def lifespan(_: FastAPI):
             await task
 
 
-app = FastAPI(title="LocalMind API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Looply API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_url],
@@ -66,9 +66,9 @@ def health():
 def root():
     ui = settings.frontend_url
     return f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>LocalMind API</title></head>
+<html><head><meta charset="utf-8"><title>Looply API</title></head>
 <body style="font-family:sans-serif;max-width:36rem;margin:4rem auto">
-<h1>LocalMind API is running</h1>
+<h1>Looply API is running</h1>
 <p>The app UI is at <a href="{ui}">{ui}</a>.</p>
 <p>Interactive API docs are at <a href="/docs">/docs</a>.</p>
 </body></html>"""

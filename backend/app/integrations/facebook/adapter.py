@@ -5,11 +5,40 @@ from app.integrations.meta import graph
 from app.models import SocialAccount
 
 
+PAGE_REQUIRED = (
+    "Facebook no longer lets apps post on a personal profile. "
+    "Create a Facebook Page you manage, then on Accounts press Change and connect that Page."
+)
+
+
 class FacebookAdapter:
     platform = "facebook"
 
+    async def _publish_target(self, pc: PublishContext) -> tuple[str, str]:
+        """Page id + Page token. A personal profile cannot be posted to; look up a Page if one exists."""
+        meta = dict(pc.account.meta or {})
+        if meta.get("kind") != "user":
+            return pc.account.external_id, pc.token
+        from app.core.crypto import decrypt, encrypt
+
+        user_token = decrypt(meta.get("user_token_enc") or "") or pc.token
+        pages = await graph("GET", "me/accounts", user_token,
+                            params={"fields": "id,name,access_token"}, platform="facebook")
+        page = next((p for p in pages.get("data") or [] if p.get("id") and p.get("access_token")), None)
+        if not page:
+            raise AdapterError(PAGE_REQUIRED)
+        acct = pc.account
+        acct.external_id = str(page["id"])
+        if page.get("name"):
+            acct.display_name = page["name"]
+        acct.access_token_enc = encrypt(page["access_token"])
+        acct.meta = {**meta, "kind": "page"}
+        pc.db.commit()
+        return acct.external_id, page["access_token"]
+
     async def publish(self, pc: PublishContext) -> PublishResult:
-        a, page_id, token = pc.asset, pc.account.external_id, pc.token
+        a = pc.asset
+        page_id, token = await self._publish_target(pc)
         text = caption(a)
         require_publishable_media(a)
         if a.kind == "video" and a.media_url:

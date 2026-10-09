@@ -10,7 +10,7 @@ const WAITING = new Set(["clarifying", "strategy_review", "review"]);
 const IST = 5.5 * 60 * 60 * 1000;
 const WEEK = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 const PLATFORM_NAME: Record<string, string> = {
-  instagram: "Instagram", whatsapp: "WhatsApp", facebook: "Facebook", linkedin: "LinkedIn",
+  instagram: "Instagram", whatsapp: "WhatsApp", facebook: "Facebook", linkedin: "LinkedIn", youtube: "YouTube", x: "X",
 };
 
 function offerLine(brief?: Brief, offer?: Offer): string {
@@ -126,7 +126,7 @@ export default function Dashboard() {
   if (loading) {
     return (
       <div className="space-y-4" aria-busy="true">
-        <DocumentTitle title="LocalMind" />
+        <DocumentTitle title="Looply" />
         <p className="sr-only">Loading your shop</p>
         <div className="h-8 w-48 animate-pulse rounded-lg bg-slate-200 motion-reduce:animate-none" />
         <div className="h-28 animate-pulse rounded-xl bg-slate-200 motion-reduce:animate-none" />
@@ -140,7 +140,7 @@ export default function Dashboard() {
   if (campaigns.isError || businesses.isError) {
     return (
       <div className="space-y-2">
-        <DocumentTitle title="LocalMind" />
+        <DocumentTitle title="Looply" />
         <ErrorNote error={new Error("Couldn't load this. Try again.")} />
         <Button onClick={() => { campaigns.refetch(); businesses.refetch(); }}>Try again</Button>
       </div>
@@ -189,10 +189,10 @@ export default function Dashboard() {
   ].filter((item): item is "offers" | "learning" | "when" => !!item).slice(0, 3);
   const recent = [...rows].sort((a, b) => -byUpdated(a, b)).slice(0, 3);
   const invite = shops.length === 0
-    ? "Add your business first. Then describe one promotion and LocalMind drafts it in your customers' language."
+    ? "Add your business first. Then describe one promotion and Looply drafts it in your customers' language."
     : shops.length === 1
-      ? `Describe a promotion for ${shops[0].name}. LocalMind will draft it in the languages you pick.`
-      : "No campaigns yet. Describe one promotion and LocalMind drafts it in your customers' language.";
+      ? `Describe a promotion for ${shops[0].name}. Looply will draft it in the languages you pick.`
+      : "No campaigns yet. Describe one promotion and Looply drafts it in your customers' language.";
 
   const hero = !!featured || !hasCampaigns;
 
