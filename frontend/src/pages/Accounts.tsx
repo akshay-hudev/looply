@@ -226,7 +226,7 @@ export default function Accounts() {
               <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-700">
                 <li>Click the button below to redirect to {via}'s official login page.</li>
                 <li>Enter your {via} email/phone and password on their official page.</li>
-                <li>Authorize Looply to post content to your {m.label} account.</li>
+                <li>Authorize LOOPLY to post content to your {m.label} account.</li>
               </ol>
               <div className="flex flex-wrap items-center gap-2 pt-2">
                 <Button onClick={go} disabled={busy}>

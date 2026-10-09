@@ -170,8 +170,8 @@ export default function Campaigns() {
       {rows.length === 0 && (
         <p className="text-sm text-slate-600">
           {shops.length === 0
-            ? "Add your business first. Then describe one promotion and Looply drafts it in your customers' language."
-            : "No campaigns yet. Describe one promotion and Looply drafts it in your customers' language."}
+            ? "Add your business first. Then describe one promotion and LOOPLY drafts it in your customers' language."
+            : "No campaigns yet. Describe one promotion and LOOPLY drafts it in your customers' language."}
         </p>
       )}
       {sections.map((section) => {

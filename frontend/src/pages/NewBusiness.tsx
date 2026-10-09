@@ -38,7 +38,7 @@ export default function NewBusiness() {
           <Field label="Latitude (optional)"><input className={inputCls} value={form.lat} onChange={set("lat")} /></Field>
           <Field label="Longitude (optional)"><input className={inputCls} value={form.lng} onChange={set("lng")} /></Field>
         </div>
-        <p className="text-xs text-slate-600">A location lets Looply mention real nearby places, such as colleges, offices, and transit, in the copy.</p>
+        <p className="text-xs text-slate-600">A location lets LOOPLY mention real nearby places, such as colleges, offices, and transit, in the copy.</p>
       </Card>
       <ErrorNote error={error} />
       <div className="flex flex-wrap items-center gap-3">

@@ -576,7 +576,7 @@ function CreativesTab({ assets, generating, awaitingPlan, product, languageLine,
       </div>
       {previewOnly && (
         <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800">
-          These designs were composed by Looply from your verified copy, so you can see and download every creative right now.
+          These designs were composed by LOOPLY from your verified copy, so you can see and download every creative right now.
           Photos and video stay as previews until an image service is connected.
         </p>
       )}

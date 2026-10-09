@@ -32,8 +32,8 @@ export function statusLabel(status: string): string {
 
 export function DocumentTitle({ title }: { title: string }) {
   useEffect(() => {
-    document.title = title === "Looply" ? title : `${title} · Looply`;
-    return () => { document.title = "Looply"; };
+    document.title = title === "LOOPLY" ? title : `${title} · LOOPLY`;
+    return () => { document.title = "LOOPLY"; };
   }, [title]);
   return null;
 }
