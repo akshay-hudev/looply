@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { api, auth } from "../lib/api";
 import { Me } from "../lib/types";
+import { fieldCls, focusCls } from "../lib/ui";
 
 export default function Shell() {
   const nav = useNavigate();
@@ -11,21 +12,24 @@ export default function Shell() {
 
   return (
     <div className="min-h-screen">
-      <header className="flex items-center gap-6 border-b border-slate-200 bg-white px-6 py-3">
-        <Link to="/" className="text-lg font-bold text-brand-700">LocalMind</Link>
+      <header className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-slate-200 bg-white px-6 py-3">
+        <Link to="/" className={`leading-tight ${focusCls}`}>
+          <span className="block text-lg font-bold text-brand-700">LocalMind</span>
+          <span className="block text-xs text-slate-600">Campaigns in your customers' language</span>
+        </Link>
         <nav className="flex gap-4 text-sm">
-          <NavLink to="/" end className={({ isActive }) => (isActive ? "font-semibold text-brand-700" : "text-slate-600")}>Campaigns</NavLink>
-          <NavLink to="/accounts" className={({ isActive }) => (isActive ? "font-semibold text-brand-700" : "text-slate-600")}>Accounts</NavLink>
+          <NavLink to="/" end className={({ isActive }) => `py-2 ${focusCls} ${isActive ? "font-semibold text-brand-700" : "text-slate-600"}`}>Campaigns</NavLink>
+          <NavLink to="/accounts" className={({ isActive }) => `py-2 ${focusCls} ${isActive ? "font-semibold text-brand-700" : "text-slate-600"}`}>Accounts</NavLink>
         </nav>
-        <div className="ml-auto flex items-center gap-3 text-sm">
+        <div className="ml-auto flex flex-wrap items-center gap-3 text-sm">
           {orgs.length > 1 && (
-            <select className="rounded border border-slate-300 px-2 py-1" value={auth.org() ?? ""}
+            <select aria-label="Organization" className={fieldCls} value={auth.org() ?? ""}
               onChange={(e) => { auth.setOrg(e.target.value); location.reload(); }}>
               {orgs.map((o) => <option key={o.id} value={o.id}>{o.name} ({o.role})</option>)}
             </select>
           )}
-          <span className="text-slate-500">{me.data?.name}</span>
-          <button className="text-slate-500 underline" onClick={() => { auth.clear(); nav("/login"); }}>Log out</button>
+          <span className="text-slate-600">{me.data?.name}</span>
+          <button className={`py-2 text-slate-600 underline ${focusCls}`} onClick={() => { auth.clear(); nav("/login"); }}>Log out</button>
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-6 py-6"><Outlet /></main>

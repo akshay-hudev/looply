@@ -4,7 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../lib/api";
 import { Brief, Business, LANGUAGES, PLATFORMS } from "../lib/types";
-import { Button, Card, ErrorNote, Field, inputCls } from "../lib/ui";
+import { Button, Card, DocumentTitle, ErrorNote, Field, focusCls, idleCls, inputCls, selectedCls, Stepper } from "../lib/ui";
 
 const FORMAT_CATALOG: Record<string, string[]> = {
   instagram: ["post", "story", "reel", "carousel", "poster"],
@@ -37,7 +37,8 @@ export default function NewCampaign() {
   const [mode, setMode] = useState<"ai" | "user">("user");
   const [formats, setFormats] = useState<Record<string, string[]>>(PRESETS[0].formats);
   const [languages, setLanguages] = useState<string[]>(["en"]);
-  const [skipReview, setSkipReview] = useState(true);
+  const [skipReview, setSkipReview] = useState(false);
+  const [allowBlank, setAllowBlank] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
 
@@ -52,7 +53,9 @@ export default function NewCampaign() {
 
   const set = (k: keyof Brief) => (v: string) => setBrief((b) => ({ ...b, [k]: v || undefined }));
   const chosen = Object.fromEntries(Object.entries(formats).filter(([, v]) => v.length));
-  const canNext = [!!businessId, true, true, mode === "ai" || Object.keys(chosen).length > 0, true][step];
+  const formatsReady = mode === "ai" || Object.keys(chosen).length > 0;
+  const canNext = [!!businessId, true, true, formatsReady && languages.length > 0, true][step];
+  const blankProduct = !brief.product?.trim();
 
   function toggleFormat(platform: string, fmt: string) {
     const cur = formats[platform] ?? [];
@@ -74,14 +77,17 @@ export default function NewCampaign() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
+      <DocumentTitle title="New campaign" />
       <h1 className="text-2xl font-bold">New campaign</h1>
-      <Stepper step={step} onJump={(i) => i < step && setStep(i)} />
+      <Stepper steps={STEPS} step={step} onJump={(i) => i < step && setStep(i)} />
 
       {step === 0 && (
         <Card className="space-y-3">
           <StepTitle title="Which business is this for?" hint="We use its name, category and location to write the copy." />
-          {businesses.isLoading ? <p className="text-sm text-slate-500">Loading…</p> : (businesses.data ?? []).length === 0 ? (
-            <p className="text-sm text-amber-700">You need a business first. <Link className="underline" to="/businesses/new">Add one</Link>.</p>
+          {businesses.isLoading ? <p className="text-sm text-slate-600">Loading businesses</p>
+            : businesses.isError ? <ErrorNote error={new Error("Couldn't load your businesses. Try again.")} />
+            : (businesses.data ?? []).length === 0 ? (
+            <p className="text-sm text-amber-800">A campaign needs a business, the place you're promoting. <Link className="underline" to="/businesses/new">Add a business</Link>.</p>
           ) : (
             <div className="grid gap-2 sm:grid-cols-2">
               {(businesses.data ?? []).map((b) => (
@@ -147,7 +153,7 @@ export default function NewCampaign() {
             <textarea className={inputCls} rows={3} value={message} onChange={(e) => setMessage(e.target.value)}
               placeholder="We just opened, we want more people to know about us…" />
           </Field>
-          <VoiceButton onText={(t) => setMessage((m) => (m ? `${m} ${t}` : t))} onError={setError} />
+          <VoiceButton onText={(t) => setMessage((m) => (m ? `${m} ${t}` : t))} />
         </Card>
       )}
 
@@ -182,6 +188,7 @@ export default function NewCampaign() {
           )}
           <div>
             <div className="mb-1 text-sm font-medium">Languages</div>
+            {languages.length === 0 && <p className="mb-1 text-xs text-amber-800">Choose at least one language.</p>}
             <div className="flex flex-wrap gap-2">
               {Object.entries(LANGUAGES).map(([code, name]) => (
                 <Toggle key={code} small on={languages.includes(code)}
@@ -197,7 +204,7 @@ export default function NewCampaign() {
       {step === 4 && (
         <Card className="space-y-3">
           <StepTitle title="Ready to generate" hint="Check the details, then we write, design, fact-check and score everything." />
-          <dl className="grid grid-cols-[9rem_1fr] gap-y-1 text-sm">
+          <dl className="grid grid-cols-1 gap-y-1 text-sm sm:grid-cols-[9rem_1fr]">
             <Row k="Business" v={biz?.name} />
             <Row k="Promoting" v={brief.product} />
             <Row k="Audience" v={brief.audience} />
@@ -210,9 +217,18 @@ export default function NewCampaign() {
             <Row k="Formats" v={mode === "ai" ? "AI decides" : Object.entries(chosen).map(([p, f]) => `${p}: ${f.map((x) => FORMAT_LABELS[x]).join(", ")}`).join(" · ")} />
             <Row k="Languages" v={languages.map((l) => LANGUAGES[l]).join(", ")} />
           </dl>
+          {blankProduct && (
+            <div className="space-y-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              <p>You haven't named what you're promoting. The draft will stay general, and no offer or price will be invented.</p>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={allowBlank} onChange={(e) => setAllowBlank(e.target.checked)} />
+                Continue without naming it
+              </label>
+            </div>
+          )}
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={skipReview} onChange={(e) => setSkipReview(e.target.checked)} />
-            Go straight to creatives (skip the strategy review step)
+            Go straight to creatives (skip the plan review)
           </label>
           <ErrorNote error={error} />
         </Card>
@@ -222,24 +238,9 @@ export default function NewCampaign() {
         <Button kind="ghost" disabled={step === 0} onClick={() => setStep(step - 1)}>← Back</Button>
         {step < STEPS.length - 1
           ? <Button disabled={!canNext} onClick={() => setStep(step + 1)}>Next →</Button>
-          : <Button disabled={busy || !businessId} onClick={submit}>{busy ? "Starting…" : "✨ Generate creatives"}</Button>}
+          : <Button disabled={busy || !businessId || (blankProduct && !allowBlank)} onClick={submit}>{busy ? "Starting…" : <><span aria-hidden="true">✨ </span>Generate creatives</>}</Button>}
       </div>
     </div>
-  );
-}
-
-function Stepper({ step, onJump }: { step: number; onJump: (i: number) => void }) {
-  return (
-    <ol className="flex flex-wrap gap-2 text-xs">
-      {STEPS.map((s, i) => (
-        <li key={s}>
-          <button type="button" onClick={() => onJump(i)}
-            className={`flex items-center gap-1.5 rounded-full px-3 py-1 ${i === step ? "bg-brand-600 text-white" : i < step ? "bg-brand-100 text-brand-800" : "bg-slate-100 text-slate-500"}`}>
-            <span className="font-semibold">{i < step ? "✓" : i + 1}</span>{s}
-          </button>
-        </li>
-      ))}
-    </ol>
   );
 }
 
@@ -252,7 +253,7 @@ function Chips({ options, value, onPick }: { options: string[]; value?: string; 
     <div className="-mt-2 flex flex-wrap gap-1.5">
       {options.map((o) => (
         <button key={o} type="button" onClick={() => onPick(value === o ? "" : o)}
-          className={`rounded-full px-2.5 py-0.5 text-xs ${value === o ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>{o}</button>
+          className={`rounded-full px-2.5 py-1 text-xs ${focusCls} ${value === o ? selectedCls : idleCls}`}>{o}</button>
       ))}
     </div>
   );
@@ -261,21 +262,23 @@ function Chips({ options, value, onPick }: { options: string[]; value?: string; 
 function Toggle({ on, onClick, children, small }: { on: boolean; onClick: () => void; children: ReactNode; small?: boolean }) {
   return (
     <button type="button" onClick={onClick}
-      className={`rounded-lg ${small ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm"} ${on ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>
+      className={`rounded-lg ${focusCls} ${small ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm"} ${on ? selectedCls : idleCls}`}>
       {children}
     </button>
   );
 }
 
 function Row({ k, v, empty = "AI will fill this in" }: { k: string; v?: string | null; empty?: string }) {
-  return <><dt className="text-slate-500">{k}</dt><dd>{v || <span className="text-slate-400">{empty}</span>}</dd></>;
+  return <><dt className="text-slate-600">{k}</dt><dd>{v || <span className="text-slate-600">{empty}</span>}</dd></>;
 }
 
-function VoiceButton({ onText, onError }: { onText: (t: string) => void; onError: (e: unknown) => void }) {
-  const [recording, setRecording] = useState(false);
+function VoiceButton({ onText }: { onText: (t: string) => void }) {
+  const [phase, setPhase] = useState<"idle" | "listening" | "writing">("idle");
+  const [error, setError] = useState<string | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   async function record() {
-    if (recording) { recorder.current?.stop(); return; }
+    if (phase === "listening") { recorder.current?.stop(); return; }
+    setError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const rec = new MediaRecorder(stream);
@@ -283,15 +286,34 @@ function VoiceButton({ onText, onError }: { onText: (t: string) => void; onError
       rec.ondataavailable = (e) => chunks.push(e.data);
       rec.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
-        setRecording(false);
+        setPhase("writing");
         const fd = new FormData();
         fd.append("file", new Blob(chunks, { type: rec.mimeType }), "voice.webm");
-        try { onText((await api.post<{ text: string }>("/voice/transcribe", fd)).text); } catch (err) { onError(err); }
+        try {
+          onText((await api.post<{ text: string }>("/voice/transcribe", fd)).text);
+          setPhase("idle");
+        } catch {
+          setPhase("idle");
+          setError("Didn't catch that. Type it instead, or try again.");
+        }
       };
       recorder.current = rec;
       rec.start();
-      setRecording(true);
-    } catch (err) { onError(err); }
+      setPhase("listening");
+    } catch {
+      setPhase("idle");
+      setError("Didn't catch that. Type it instead, or try again.");
+    }
   }
-  return <Button kind="ghost" small onClick={record}>{recording ? "⏹ Stop & transcribe" : "🎤 Speak instead"}</Button>;
+  const status = phase === "listening"
+    ? "Listening. Say it the way you'd tell a customer."
+    : phase === "writing" ? "Writing that down…" : error;
+  return (
+    <div className="space-y-1">
+      <Button kind="ghost" small pressed={phase === "listening"} onClick={record}>
+        {phase === "listening" ? "Stop" : "Speak instead"}
+      </Button>
+      {status && <p role="status" className={`text-xs ${error && phase === "idle" ? "text-red-700" : "text-slate-600"}`}>{status}</p>}
+    </div>
+  );
 }

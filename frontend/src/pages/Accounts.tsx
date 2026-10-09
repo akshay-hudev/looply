@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { api } from "../lib/api";
 import { Business, Contact, PLATFORMS, SocialAccount } from "../lib/types";
-import { Badge, Button, Card, ErrorNote, Field, inputCls } from "../lib/ui";
+import { Badge, Button, Card, DocumentTitle, ErrorNote, Field, focusCls, inputCls, Stepper } from "../lib/ui";
 
 type Platform = (typeof PLATFORMS)[number];
 type Method = "login" | "token" | "simulated";
@@ -28,10 +28,11 @@ const META: Record<Platform, { label: string; icon: string; color: string; needs
   linkedin: {
     label: "LinkedIn", icon: "💼", color: "from-sky-700 to-sky-500",
     needs: "A LinkedIn profile (or a Page you administer).", idLabel: "Person or organization URN",
-    idHelp: "e.g. urn:li:person:abc123 or urn:li:organization:123.",
+    idHelp: "The id LinkedIn shows for a person or a Page. It starts with urn:li:.",
   },
 };
 const STEPS = ["Choose platform", "How to connect", "Connect", "Done"];
+const REPLACE_KEY = "lm.replaceAccount";
 
 export default function Accounts() {
   const qc = useQueryClient();
@@ -55,23 +56,38 @@ export default function Accounts() {
   const m = META[platform];
 
   function restart() {
+    sessionStorage.removeItem(REPLACE_KEY);
     setParams({});
     setError(null);
     setStep(0);
   }
 
-  async function changeAccount(account: SocialAccount) {
-    setError(null);
-    setBusy(true);
+  async function consumeReplacement() {
+    const oldId = sessionStorage.getItem(REPLACE_KEY);
+    if (!oldId) return;
+    sessionStorage.removeItem(REPLACE_KEY);
     try {
-      await api.del(`/social/accounts/${account.id}`);
-      await qc.invalidateQueries({ queryKey: ["accounts"] });
-      const next = account.target_platform as Platform;
-      setPlatform(next);
-      setMethod(providers.data?.[next]?.login ? "login" : "simulated");
-      setParams({});
-      setStep(2);
-    } catch (e) { setError(e); } finally { setBusy(false); }
+      await api.del(`/social/accounts/${oldId}`);
+    } catch {
+      /* The previous account stays connected if the replacement cannot be removed. */
+    }
+    qc.invalidateQueries({ queryKey: ["accounts"] });
+  }
+
+  useEffect(() => {
+    if (connected) void consumeReplacement();
+    // The stored id is read once when an OAuth login returns.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected]);
+
+  function changeAccount(account: SocialAccount) {
+    setError(null);
+    sessionStorage.setItem(REPLACE_KEY, account.id);
+    const next = account.target_platform as Platform;
+    setPlatform(next);
+    setMethod(providers.data?.[next]?.login ? "login" : "simulated");
+    setParams({});
+    setStep(1);
   }
 
   async function go() {
@@ -90,20 +106,16 @@ export default function Accounts() {
         await api.post("/social/mock/connect", { target_platform: platform, business_id: biz || null });
       }
       qc.invalidateQueries({ queryKey: ["accounts"] });
+      await consumeReplacement();
       setStep(3);
     } catch (e) { setError(e); } finally { setBusy(false); }
   }
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
+      <DocumentTitle title="Accounts" />
       <h1 className="text-2xl font-bold">Connect your social accounts</h1>
-      <ol className="flex flex-wrap gap-2 text-xs">
-        {STEPS.map((s, i) => (
-          <li key={s} className={`flex items-center gap-1.5 rounded-full px-3 py-1 ${i === step ? "bg-brand-600 text-white" : i < step ? "bg-brand-100 text-brand-800" : "bg-slate-100 text-slate-500"}`}>
-            <span className="font-semibold">{i < step ? "✓" : i + 1}</span>{s}
-          </li>
-        ))}
-      </ol>
+      <Stepper steps={STEPS} step={step} />
 
       {step === 0 && (
         <Card className="space-y-4">
@@ -113,7 +125,7 @@ export default function Accounts() {
               const linked = (accounts.data ?? []).filter((a) => a.target_platform === p);
               const live = linked.some((a) => !a.simulated);
               return (
-              <button key={p} type="button" onClick={() => { setPlatform(p); setMethod(providers.data?.[p]?.login ? "login" : "simulated"); setStep(1); }}
+              <button key={p} type="button" onClick={() => { sessionStorage.removeItem(REPLACE_KEY); setPlatform(p); setMethod(providers.data?.[p]?.login ? "login" : "simulated"); setStep(1); }}
                 className={`flex items-center gap-3 rounded-xl border p-3 text-left hover:border-brand-500 hover:bg-brand-50 ${live ? "border-emerald-400 bg-emerald-50" : "border-slate-200"}`}>
                 <span className={`flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br text-xl ${META[p].color}`}>{META[p].icon}</span>
                 <span className="min-w-0 flex-1">
@@ -148,7 +160,7 @@ export default function Accounts() {
             title={`Log in with ${via} (recommended)`}
             text={loginReady
               ? `You'll type your ${via} email and password on ${via}'s own secure page, then choose what LocalMind may post. We never see or store your password.`
-              : `Not set up on this server yet. An admin adds ${via === "LinkedIn" ? "LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET" : "META_APP_ID and META_APP_SECRET"} to the backend .env and restarts it. Until then, use one of the options below.`} />
+              : "Secure login is not available on this server. Add a simulated account to try the full flow, or paste a token if you already have one."} />
           <MethodOption on={method === "token"} onClick={() => setMethod("token")} title="Paste an access token"
             text={`For developers who already have a ${via === "LinkedIn" ? "LinkedIn" : "Meta Graph API"} token. We check it with ${via} before saving.`} />
           <MethodOption on={method === "simulated"} onClick={() => setMethod("simulated")} title="Try it with a simulated account"
@@ -225,7 +237,7 @@ export default function Accounts() {
             </>
           ) : (
             <>
-              <h2 className="text-lg font-semibold">✅ {META[platform].label} is connected</h2>
+              <h2 className="text-lg font-semibold">{META[platform].label} is connected</h2>
               <p className="text-sm text-slate-600">This login stays connected until you press Change or Disconnect.</p>
               {notice === "no_page" && (
                 <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -236,24 +248,31 @@ export default function Accounts() {
           )}
           <div className="flex gap-2">
             <Button onClick={restart}>Connect another account</Button>
-            <Link to="/" className="rounded-lg border border-slate-300 px-4 py-2 font-medium text-slate-700 hover:bg-slate-50">Go to campaigns</Link>
+            <Link to="/" className={`inline-flex items-center rounded-lg border border-slate-500 bg-white px-4 py-2 font-medium text-slate-700 hover:bg-slate-50 ${focusCls}`}>Go to campaigns</Link>
           </div>
         </Card>
       )}
 
       <Card className="space-y-2 text-sm">
         <h2 className="font-semibold">Your connected accounts</h2>
-        {(accounts.data ?? []).length === 0 && <p className="text-xs text-slate-500">None yet.</p>}
+        {accounts.isLoading && <p className="text-xs text-slate-600">Loading accounts</p>}
+        {accounts.isError && <ErrorNote error={new Error("Couldn't load this. Try again.")} />}
+        {accounts.data?.length === 0 && <p className="text-sm text-slate-600">None yet. Pick a platform above, or add a simulated account to try publishing without going live.</p>}
         {(accounts.data ?? []).map((a) => (
           <div key={a.id} className={`flex items-center justify-between gap-2 border-t pt-2 ${a.simulated ? "border-slate-100" : "border-emerald-100"}`}>
             <div className="min-w-0">
               <span className="mr-1">{META[a.target_platform as Platform]?.icon}</span>
               <b className="capitalize">{a.target_platform}</b> · {a.display_name}{" "}
-              {a.simulated ? <Badge tone="amber">simulated</Badge> : <Badge tone="green">Connected</Badge>}
+              {a.simulated ? <Badge tone="amber">Simulated</Badge> : <Badge tone="green">Connected</Badge>}
             </div>
             <div className="flex shrink-0 gap-2">
               <Button small kind="ghost" disabled={busy} onClick={() => changeAccount(a)}>Change</Button>
-              <Button small kind="danger" onClick={async () => { await api.del(`/social/accounts/${a.id}`); qc.invalidateQueries({ queryKey: ["accounts"] }); }}>Disconnect</Button>
+              <Button small kind="danger" onClick={async () => {
+                const ok = window.confirm(`Disconnect ${a.display_name}? Future posts to this account will stop.`);
+                if (!ok) return;
+                await api.del(`/social/accounts/${a.id}`);
+                qc.invalidateQueries({ queryKey: ["accounts"] });
+              }}>Disconnect</Button>
             </div>
           </div>
         ))}
@@ -269,7 +288,7 @@ export default function Accounts() {
 function MethodOption({ on, onClick, title, text, disabled }: { on: boolean; onClick: () => void; title: string; text: string; disabled?: boolean }) {
   return (
     <button type="button" onClick={onClick} disabled={disabled}
-      className={`block w-full rounded-xl border p-3 text-left ${on && !disabled ? "border-brand-600 bg-brand-50 ring-1 ring-brand-600" : "border-slate-200"} ${disabled ? "cursor-not-allowed opacity-60" : "hover:bg-slate-50"}`}>
+      className={`block w-full rounded-xl border p-3 text-left ${focusCls} ${on && !disabled ? "border-brand-600 bg-brand-50 ring-1 ring-brand-600" : "border-slate-200"} ${disabled ? "cursor-not-allowed" : "hover:bg-slate-50"}`}>
       <div className="font-semibold">{title}</div>
       <div className="text-xs text-slate-600">{text}</div>
     </button>
@@ -294,11 +313,11 @@ function Contacts({ business }: { business: Business }) {
     <Card className="space-y-2 text-sm">
       <h2 className="font-semibold">WhatsApp contacts · {business.name}</h2>
       <p className="text-xs text-slate-500">Business-initiated messages only go to contacts who opted in, and the consent source is recorded.</p>
-      <div className="flex flex-wrap gap-2 md:flex-nowrap">
-        <input className={inputCls} placeholder="+91…" value={row.phone} onChange={(e) => setRow({ ...row, phone: e.target.value })} />
-        <input className={inputCls} placeholder="Name" value={row.name} onChange={(e) => setRow({ ...row, name: e.target.value })} />
-        <input className={inputCls} placeholder="Opt-in source (e.g. in-store QR)" value={row.opt_in_source} onChange={(e) => setRow({ ...row, opt_in_source: e.target.value })} />
-        <Button small onClick={() => add.mutate()} disabled={!row.phone || !row.opt_in_source}>Add</Button>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <Field label="Phone"><input className={inputCls} placeholder="+91…" value={row.phone} onChange={(e) => setRow({ ...row, phone: e.target.value })} /></Field>
+        <Field label="Name"><input className={inputCls} value={row.name} onChange={(e) => setRow({ ...row, name: e.target.value })} /></Field>
+        <Field label="How they opted in"><input className={inputCls} placeholder="In-store QR" value={row.opt_in_source} onChange={(e) => setRow({ ...row, opt_in_source: e.target.value })} /></Field>
+        <div className="flex items-end"><Button onClick={() => add.mutate()} disabled={!row.phone || !row.opt_in_source || add.isPending}>{add.isPending ? "Adding…" : "Add"}</Button></div>
       </div>
       <ErrorNote error={error} />
       {(list.data ?? []).map((c) => (

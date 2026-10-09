@@ -1,23 +1,61 @@
-import { ReactNode } from "react";
+import { ReactNode, useEffect } from "react";
 
-export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`rounded-xl border border-slate-200 bg-white p-4 shadow-sm ${className}`}>{children}</div>;
+export const focusCls =
+  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-700";
+export const fieldCls = `rounded-lg border border-slate-500 px-3 py-2 text-sm ${focusCls}`;
+export const inputCls = `w-full ${fieldCls}`;
+export const selectedCls = "bg-brand-700 text-white";
+export const idleCls = "bg-slate-100 text-slate-700 hover:bg-slate-200";
+
+const STATUS_LABELS: Record<string, string> = {
+  strategy_review: "Needs a plan",
+  clarifying: "Needs an answer",
+  generating: "Writing",
+  review: "Needs approval",
+  approved: "Ready to publish",
+  publishing: "Publishing",
+  published: "Published",
+  pending_localization: "Waiting on translation",
+  verified: "Verified",
+  failed: "Failed",
+  rejected: "Rejected",
+  stale: "Out of date",
+  scheduled: "Scheduled",
+  queued: "Queued",
+  simulated: "Simulated",
+};
+
+export function statusLabel(status: string): string {
+  if (STATUS_LABELS[status]) return STATUS_LABELS[status];
+  return status.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+export function DocumentTitle({ title }: { title: string }) {
+  useEffect(() => {
+    document.title = title === "LocalMind" ? title : `${title} · LocalMind`;
+    return () => { document.title = "LocalMind"; };
+  }, [title]);
+  return null;
+}
+
+export function Card({ children, className = "", compact = false }: { children: ReactNode; className?: string; compact?: boolean }) {
+  return <div className={`rounded-xl border border-slate-200 bg-white shadow-sm ${compact ? "p-3" : "p-4"} ${className}`}>{children}</div>;
 }
 
 export function Button({
-  children, onClick, type = "button", kind = "primary", disabled = false, small = false,
+  children, onClick, type = "button", kind = "primary", disabled = false, small = false, pressed,
 }: {
   children: ReactNode; onClick?: () => void; type?: "button" | "submit";
-  kind?: "primary" | "ghost" | "danger"; disabled?: boolean; small?: boolean;
+  kind?: "primary" | "ghost" | "danger"; disabled?: boolean; small?: boolean; pressed?: boolean;
 }) {
   const styles = {
-    primary: "bg-brand-600 text-white hover:bg-brand-700 disabled:bg-slate-300",
-    ghost: "bg-white border border-slate-300 text-slate-700 hover:bg-slate-50",
+    primary: "bg-brand-700 text-white hover:bg-brand-800 disabled:hover:bg-slate-200",
+    ghost: "border border-slate-500 bg-white text-slate-700 hover:bg-slate-50",
     danger: "bg-red-600 text-white hover:bg-red-700",
   }[kind];
   return (
-    <button type={type} onClick={onClick} disabled={disabled}
-      className={`rounded-lg font-medium ${small ? "px-2.5 py-1 text-sm" : "px-4 py-2"} ${styles} disabled:cursor-not-allowed`}>
+    <button type={type} onClick={onClick} disabled={disabled} aria-pressed={pressed}
+      className={`rounded-lg font-medium disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-600 ${focusCls} ${small ? "px-2.5 py-1 text-sm" : "px-4 py-2"} ${styles}`}>
       {children}
     </button>
   );
@@ -48,13 +86,31 @@ export function Field({ label, children }: { label: string; children: ReactNode 
   );
 }
 
-export const inputCls = "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none";
-
 export function ErrorNote({ error }: { error: unknown }) {
   if (!error) return null;
-  return <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{(error as Error).message}</p>;
+  return <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{(error as Error).message}</p>;
 }
 
 export function Spinner() {
-  return <div className="mx-auto h-6 w-6 animate-spin rounded-full border-2 border-brand-600 border-t-transparent" />;
+  return <span aria-hidden="true" className="inline-block h-6 w-6 shrink-0 animate-spin rounded-full border-2 border-brand-700 border-t-transparent motion-reduce:animate-none" />;
+}
+
+export function Stepper({ steps, step, onJump }: { steps: string[]; step: number; onJump?: (i: number) => void }) {
+  return (
+    <ol className="flex flex-wrap gap-2 text-xs">
+      {steps.map((label, i) => {
+        const cls = i === step ? selectedCls : i < step ? "bg-brand-100 text-brand-700" : "bg-slate-100 text-slate-600";
+        const body = <><span className="font-semibold">{i < step ? "✓" : i + 1}</span>{label}</>;
+        return (
+          <li key={label}>
+            {onJump ? (
+              <button type="button" onClick={() => onJump(i)} className={`flex items-center gap-1.5 rounded-full px-3 py-1 ${focusCls} ${cls}`}>{body}</button>
+            ) : (
+              <span className={`flex items-center gap-1.5 rounded-full px-3 py-1 ${cls}`}>{body}</span>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
 }
