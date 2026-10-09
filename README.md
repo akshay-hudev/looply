@@ -7,7 +7,7 @@ HACKERING 2.0 Round 2 project for Team CodebaLe (Agentic AI Track).
 Multi-agent marketing app: describe a promotion in plain language (or by voice), and LocalMind plans a
 campaign, writes platform-native content in the languages you choose, checks every number against your
 locked offer facts, predicts performance, and — only after you approve — publishes to Instagram,
-Facebook, WhatsApp and LinkedIn.
+Facebook, WhatsApp, LinkedIn and YouTube.
 
 ## Quick start (demo mode, no API keys)
 
@@ -42,9 +42,10 @@ See `.env.example`. The important groups:
 | Group | What |
 |---|---|
 | `AGNES_*` | Primary model provider (OpenAI-compatible). `OPENAI_*` / `GEMINI_*` are fallbacks tried in the order of `TEXT_PROVIDERS`, `IMAGE_PROVIDERS`, `VIDEO_PROVIDERS`. |
+| `ANTHROPIC_API_KEY`, `CLAUDE_DESIGN_*` | When set, Claude designs every poster, carousel and reel storyboard as SVG (Claude doesn't output raster images). Posters are rendered to PNG with resvg for publishing; storyboards stay animated SVG previews. If Claude fails, LOOPLY's composed poster is used. |
 | `LOCALITY_PROVIDER` | `osm` (Nominatim + Overpass, no key) or `google` (`GOOGLE_PLACES_API_KEY`). |
 | `STT_*` / `BHASHINI_*` | Voice input. `STT_PROVIDER=openai` (Whisper-compatible) or `bhashini`. |
-| `META_*`, `WHATSAPP_*`, `LINKEDIN_*` | OAuth apps for real publishing. |
+| `META_*`, `WHATSAPP_*`, `LINKEDIN_*`, `YOUTUBE_*` | OAuth apps for real publishing. |
 | `TOKEN_ENCRYPTION_KEY` | Fernet key; OAuth tokens are encrypted at rest. |
 | `USE_WORKER` | `true` runs jobs on the arq/Redis worker; otherwise they run in-process. |
 
@@ -87,7 +88,7 @@ backend/app
   agents/        one module per agent (campaign manager, locality, platform, truth, ...)
   graph/         Campaign Brain schema + LangGraph plan/produce pipelines
   prompts/       vendored agency-agents personas, manifest, per-agent contracts
-  integrations/  instagram, facebook, whatsapp, linkedin, mock publishing adapters
+  integrations/  instagram, facebook, whatsapp, linkedin, youtube, mock publishing adapters
   services/      model gateway, locality, media storage, publishing, analytics, speech, oauth
   workers/       arq tasks: plan, produce, video polling, publishing, analytics, token refresh
 frontend/src     React + Vite + Tailwind: dashboard, campaign studio, accounts

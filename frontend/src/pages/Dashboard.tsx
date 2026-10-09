@@ -1,10 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { ReactNode } from "react";
+import { Link, useNavigate } from "react-router-dom";
+
+import { AmplifyBeams, NATIVE_LANGUAGE } from "../components/AmplifyBeams";
+import { Aurora, BorderBeam, Img, LOOP_GRADIENT, NumberTicker, PostStack, PosterFallback, Reveal } from "../components/fx";
+import { OfferStrip, offerParts } from "../components/Offer";
+import { PlatformIcon } from "../components/PlatformIcon";
 
 import { api } from "../lib/api";
 import { displayOffer } from "../lib/offer";
 import { Asset, Brief, Business, Campaign, LANGUAGES, Learning, Me, Offer, PLATFORMS, SocialAccount } from "../lib/types";
-import { Badge, Button, Card, DocumentTitle, ErrorNote, focusCls, statusLabel, statusTone } from "../lib/ui";
+import { Badge, Button, DocumentTitle, ErrorNote, focusCls, statusLabel, statusTone } from "../lib/ui";
 
 const WAITING = new Set(["clarifying", "strategy_review", "review"]);
 const IST = 5.5 * 60 * 60 * 1000;
@@ -91,8 +97,8 @@ function nextSlot(day: string, time: string): { at: Date; delta: number; label: 
   return { at, delta, label };
 }
 
-const primaryLink = `inline-flex items-center rounded-lg bg-brand-700 px-4 py-2 font-medium text-white hover:bg-brand-800 ${focusCls}`;
-const ghostLink = `inline-flex items-center rounded-lg border border-slate-500 bg-white px-4 py-2 font-medium text-slate-700 hover:bg-slate-50 ${focusCls}`;
+const primaryLink = `lm-cta inline-flex items-center gap-2 rounded-xl px-5 py-2.5 font-medium text-white ${focusCls}`;
+const ghostLink = `lm-glass inline-flex items-center gap-2 rounded-xl px-5 py-2.5 font-medium text-slate-800 transition-colors hover:bg-white/90 dark:hover:bg-white/10 ${focusCls}`;
 
 export default function Dashboard() {
   const campaigns = useQuery({ queryKey: ["campaigns"], queryFn: () => api.get<Campaign[]>("/campaigns"), refetchOnMount: "always" });
@@ -166,13 +172,12 @@ export default function Dashboard() {
     const platforms = c.brain?.strategy?.platforms ?? [];
     return platforms.length > 0 && platforms.every((p) => accountReady(p, c.business_id));
   }).length;
-  const countLine = [
-    [shops.length, "shop", "shops"],
-    [rows.filter((c) => c.status === "published").length, "published", "published"],
-    [readyCount, "ready to publish", "ready to publish"],
-    [waiting.length, "waiting on you", "waiting on you"],
-    [rows.filter((c) => c.status === "generating" || c.status === "publishing").length, "in progress", "in progress"],
-  ].filter(([n]) => Number(n) > 0).map(([n, one, many]) => `${n} ${Number(n) === 1 ? one : many}`).join(" · ");
+  const stats = [
+    { n: rows.filter((c) => c.status === "published").length, label: "Published" },
+    { n: readyCount, label: "Ready to publish" },
+    { n: waiting.length, label: "Waiting on you", hot: waiting.length > 0 },
+    { n: rows.filter((c) => c.status === "generating" || c.status === "publishing").length, label: "In progress" },
+  ];
 
   const approved = rows.filter((c) => c.status === "approved");
   const heroWhen = featured && featured.status === "approved" ? soonestPost([featured], accountReady) : null;
@@ -194,56 +199,88 @@ export default function Dashboard() {
       ? `Describe a promotion for ${shops[0].name}. LOOPLY will draft it in the languages you pick.`
       : "No campaigns yet. Describe one promotion and LOOPLY drafts it in your customers' language.";
 
-  const hero = !!featured || !hasCampaigns;
+  const heroCampaign = featured && detail.data?.id === featured.id ? detail.data : featured;
+  const heroOffer = heroCampaign ? offerParts(heroCampaign) : null;
+  const heroFigure = heroOffer?.figure || (heroCampaign ? productOf(heroCampaign) : "Your offer");
+  const heroCaption = heroCampaign
+    ? [heroOffer?.figure ? productOf(heroCampaign) : "", heroOffer?.dates].filter(Boolean).join(" · ")
+    : "Say it once. We take it everywhere.";
+  const heroPlatforms = heroCampaign ? heroCampaign.brain?.strategy?.platforms ?? [] : [...PLATFORMS];
+  const heroLanguages = heroCampaign ? languagesOf(heroCampaign) : ["en", "hi", "kn"];
+  const needsYou = !!feature && (feature.eyebrow === "Waiting on you" || feature.eyebrow === "Needs an account");
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-10">
       <DocumentTitle title={title} />
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          {welcome && <p className="text-sm text-slate-600">{welcome}</p>}
-          <h1 className="text-2xl font-bold">{title}</h1>
-          {placeLine && <p className="text-sm text-slate-600">{placeLine}</p>}
-          {countLine && <p className="mt-2 text-sm text-slate-600">{countLine}</p>}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {feature && featured
-            ? <Link className={primaryLink} to={`/campaigns/${featured.id}`}>{feature.step}</Link>
-            : shops.length === 0
-              ? <Link className={primaryLink} to="/businesses/new">Add a business</Link>
-              : <Link className={primaryLink} to="/campaigns/new">New campaign</Link>}
-          {feature && shops.length > 0 && <Link className={ghostLink} to="/campaigns/new">New campaign</Link>}
-        </div>
-      </div>
 
-      {hero && (
-        <div>
-          {featured && feature && (
-            <WaitingCard
-              campaign={detail.data?.id === featured.id ? detail.data : featured}
-              shopName={featuredShop}
-              step={feature.step}
-              href={`/campaigns/${featured.id}`}
-              eyebrow={feature.eyebrow}
-              goesOut={heroWhen ? `${heroWhen.channel} · ${heroWhen.label}` : undefined}
-              connected={(platform) => accountReady(platform, featured.business_id)}
-            />
-          )}
-          {!hasCampaigns && <p className="text-sm text-slate-600">{invite}</p>}
+      <section className="lm-card relative overflow-hidden rounded-3xl border bg-white">
+        <Aurora />
+        <div className="relative grid items-center gap-10 p-6 sm:p-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,30rem)]">
+          <Reveal>
+            {welcome && (
+              <p className="lm-glass inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium text-slate-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-brand-600" />{welcome}
+              </p>
+            )}
+            <h1 className="mt-4 font-display text-5xl leading-[0.95] tracking-tight text-slate-900 sm:text-6xl">{title}</h1>
+            {placeLine && <p className="mt-2 text-sm font-medium text-slate-600">{placeLine}</p>}
+            <p className="mt-5 max-w-md font-display text-2xl leading-snug text-slate-800">
+              Say it once. <em className="lm-gradient-text pr-1">Amplified</em> everywhere your customers are.
+            </p>
+            {hasCampaigns ? (
+              <dl className="mt-6 grid max-w-xl grid-cols-2 gap-2 sm:grid-cols-4">
+                {stats.map((s) => (
+                  <div key={s.label} className={`lm-glass rounded-2xl px-3 py-2.5 ${s.hot ? "ring-2 ring-brand-300" : ""}`}>
+                    <dt className="text-[11px] font-medium text-slate-600">{s.label}</dt>
+                    <dd className={`mt-0.5 font-display text-4xl leading-none ${s.hot ? "lm-gradient-text" : "text-slate-900"}`}><NumberTicker value={s.n} /></dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="mt-4 max-w-md text-sm text-slate-600">{invite}</p>
+            )}
+            <div className="mt-7 flex flex-wrap gap-3">
+              {feature && featured
+                ? <Link className={primaryLink} to={`/campaigns/${featured.id}`}>{feature.step}<ArrowIcon /></Link>
+                : shops.length === 0
+                  ? <Link className={primaryLink} to="/businesses/new">Add a business<ArrowIcon /></Link>
+                  : <Link className={primaryLink} to="/campaigns/new">New campaign<ArrowIcon /></Link>}
+              {feature && shops.length > 0 && <Link className={ghostLink} to="/campaigns/new"><PlusIcon />New campaign</Link>}
+            </div>
+          </Reveal>
+          <AmplifyBeams figure={heroFigure} caption={heroCaption} platforms={heroPlatforms} languages={heroLanguages}
+            eyebrow={heroCampaign ? "Latest offer" : "Your offer"} />
         </div>
+      </section>
+
+      {featured && feature && (
+        <Reveal delay={0.1} className="space-y-3">
+          <SectionHead eyebrow={needsYou ? "Needs you now" : "Latest campaign"} title={feature.eyebrow === "Waiting on you" ? "One step left from you" : feature.eyebrow} />
+          <WaitingCard
+            campaign={detail.data?.id === featured.id ? detail.data : featured}
+            shopName={featuredShop}
+            step={feature.step}
+            href={`/campaigns/${featured.id}`}
+            eyebrow={feature.eyebrow}
+            highlight={needsYou}
+            goesOut={heroWhen ? `${heroWhen.channel} · ${heroWhen.label}` : undefined}
+            connected={(platform) => accountReady(platform, featured.business_id)}
+          />
+        </Reveal>
       )}
 
       {quiet.length > 0 && (
-        <div className="flex flex-wrap gap-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {quiet.map((kind) => {
             if (kind === "offers" && shop) {
               return (
-                <div key="offers" className="min-w-[16rem] flex-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <p className="font-semibold">Another promotion for {shop.name}</p>
+                <div key="offers" className="lm-card rounded-2xl border bg-white p-5">
+                  <IconTile><TagIcon /></IconTile>
+                  <p className="mt-3 font-display text-xl leading-tight">Another promotion for {shop.name}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {pastOffers.map((c) => (
                       <Link key={c.id} to={`/campaigns/new?from=${c.id}`} className={`rounded-full ${focusCls}`}>
-                        <Badge>{offerLabel(c)}</Badge>
+                        <span className="inline-block rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700 hover:bg-brand-100">{offerLabel(c)}</span>
                       </Link>
                     ))}
                   </div>
@@ -252,20 +289,22 @@ export default function Dashboard() {
             }
             if (kind === "learning" && learning) {
               return (
-                <Link key="learning" to={`/campaigns/new?learning=${learning.id}`} className={`block min-w-[16rem] flex-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:border-brand-500 ${focusCls}`}>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-medium">Use this next time</p>
+                <Link key="learning" to={`/campaigns/new?learning=${learning.id}`} className={`lm-card block rounded-2xl border bg-white p-5 transition-transform duration-300 hover:-translate-y-0.5 ${focusCls}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <IconTile><BulbIcon /></IconTile>
                     {learning.simulated && <Badge tone="amber">Simulated</Badge>}
                   </div>
-                  <p className="mt-2 text-sm text-slate-600">{learning.recommendation || learning.insight}</p>
+                  <p className="mt-3 font-display text-xl leading-tight">Use this next time</p>
+                  <p className="mt-1 text-sm text-slate-600">{learning.recommendation || learning.insight}</p>
                 </Link>
               );
             }
             if (kind === "when" && otherWhen) {
               return (
-                <Link key="when" to={`/campaigns/${otherWhen.id}`} className={`block min-w-[16rem] flex-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:border-brand-500 ${focusCls}`}>
-                  <p className="text-sm font-medium">When it goes out</p>
-                  <p className="mt-2 text-sm text-slate-600">{otherWhen.product} · {otherWhen.channel} · {otherWhen.label}</p>
+                <Link key="when" to={`/campaigns/${otherWhen.id}`} className={`lm-card block rounded-2xl border bg-white p-5 transition-transform duration-300 hover:-translate-y-0.5 ${focusCls}`}>
+                  <IconTile><ClockIcon /></IconTile>
+                  <p className="mt-3 font-display text-xl leading-tight">When it goes out</p>
+                  <p className="mt-1 text-sm text-slate-600">{otherWhen.product} · {otherWhen.channel} · {otherWhen.label}</p>
                 </Link>
               );
             }
@@ -275,30 +314,47 @@ export default function Dashboard() {
       )}
 
       {hasCampaigns && (
-        <section className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="font-semibold">Recent campaigns</h2>
-            <Link to="/campaigns" className={`text-sm font-medium text-brand-700 ${focusCls}`}>All campaigns</Link>
+        <section className="space-y-4">
+          <div className="flex items-end justify-between gap-3">
+            <SectionHead eyebrow="Your work" title="Recent campaigns" />
+            <Link to="/campaigns" className={`text-sm font-semibold text-brand-700 ${focusCls}`}>All campaigns →</Link>
           </div>
-          <div className="grid gap-3">
-            {recent.map((c) => {
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {recent.map((c, i) => {
               const missing = c.status === "approved" && (c.brain?.strategy?.platforms ?? []).some((p) => !accountReady(p, c.business_id));
+              const poster = c.row?.poster_url;
+              const figure = offerLabel(c) || productOf(c);
               return (
-                <Link key={c.id} to={`/campaigns/${c.id}`}>
-                  <Card className="flex items-center justify-between gap-3 hover:border-brand-500">
-                    <div>
-                      <div className="font-medium">{c.title}</div>
-                      <div className="text-xs text-slate-600">
+                <Reveal key={c.id} delay={0.05 * i}>
+                  <Link to={`/campaigns/${c.id}`} className={`lm-card group block h-full overflow-hidden rounded-2xl border bg-white transition duration-300 hover:-translate-y-1 hover:shadow-xl ${focusCls}`}>
+                    <div className="relative aspect-[16/10] overflow-hidden" style={{ backgroundImage: LOOP_GRADIENT }}>
+                      <Img src={poster ?? undefined} alt="" aria-hidden="true" fallback={null}
+                        className="absolute inset-0 h-full w-full scale-110 object-cover opacity-70 blur-xl" />
+                      <Img src={poster ?? undefined} alt={`Poster for ${c.title}`}
+                        className="relative h-full w-full object-contain transition-transform duration-500 group-hover:scale-[1.04]"
+                        fallback={(
+                          <div className="flex h-full items-center justify-center p-4 text-center">
+                            <span className="font-display text-4xl leading-none text-[#ffffff]">{figure}</span>
+                          </div>
+                        )} />
+                      <span className="absolute right-3 top-3">
+                        <Badge tone={missing ? "amber" : statusTone(c.status)}>{missing ? "Needs an account" : statusLabel(c.status)}</Badge>
+                      </span>
+                    </div>
+                    <div className="space-y-2 p-4">
+                      <p className="line-clamp-2 font-display text-2xl leading-tight text-slate-900">{c.title}</p>
+                      <p className="line-clamp-1 text-xs text-slate-600">
                         {[names.get(c.business_id)?.name, offerLine(c.brain?.brief, c.brain?.offer)].filter(Boolean).join(" · ")}
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {(c.brain?.strategy?.platforms ?? []).map((p) => <Badge key={p}>{cap(p)}</Badge>)}
-                        {languagesOf(c).map((l) => <Badge key={l}>{LANGUAGES[l] ?? l}</Badge>)}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <span className="flex items-center gap-1.5">
+                          {(c.brain?.strategy?.platforms ?? []).map((p) => <PlatformIcon key={p} platform={p} className="h-4 w-4 text-slate-900" />)}
+                        </span>
+                        <span className="ml-auto text-xs text-slate-600">{languagesOf(c).map((l) => NATIVE_LANGUAGE[l] ?? LANGUAGES[l] ?? l).join(" · ")}</span>
                       </div>
                     </div>
-                    <Badge tone={missing ? "amber" : statusTone(c.status)}>{missing ? "Needs an account" : statusLabel(c.status)}</Badge>
-                  </Card>
-                </Link>
+                  </Link>
+                </Reveal>
               );
             })}
           </div>
@@ -308,6 +364,32 @@ export default function Dashboard() {
   );
 }
 
+function SectionHead({ eyebrow, title }: { eyebrow: string; title: string }) {
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-700">{eyebrow}</p>
+      <h2 className="font-display text-3xl leading-tight text-slate-900">{title}</h2>
+    </div>
+  );
+}
+
+function IconTile({ children }: { children: ReactNode }) {
+  return <span className="flex h-10 w-10 items-center justify-center rounded-xl text-[#ffffff] shadow-sm" style={{ backgroundImage: LOOP_GRADIENT }}>{children}</span>;
+}
+
+function ArrowIcon() {
+  return <svg aria-hidden="true" viewBox="0 0 16 16" className="h-4 w-4"><path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+function PlusIcon() {
+  return <svg aria-hidden="true" viewBox="0 0 16 16" className="h-4 w-4"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>;
+}
+function TagIcon() {
+  return <svg aria-hidden="true" viewBox="0 0 20 20" className="h-5 w-5"><path d="M3 10.5V4a1 1 0 0 1 1-1h6.5L17 9.5 10.5 16z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><circle cx="7" cy="7" r="1.3" fill="currentColor" /></svg>;
+}
+function BulbIcon() {
+  return <svg aria-hidden="true" viewBox="0 0 20 20" className="h-5 w-5"><path d="M7.5 14.5h5M8.5 17h3M10 3a5 5 0 0 0-3 9c.6.5 1 1.1 1 1.8v.7h4v-.7c0-.7.4-1.3 1-1.8a5 5 0 0 0-3-9z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
 const JOURNEY = ["Plan", "Your posts", "Approve", "Publish"];
 
 function journeyIndex(status: string) {
@@ -315,14 +397,6 @@ function journeyIndex(status: string) {
   if (status === "review") return 2;
   if (status === "approved" || status === "publishing" || status === "published") return 3;
   return 0;
-}
-
-function formatWhen(raw?: string | null) {
-  if (!raw) return "";
-  const iso = raw.length === 10 ? `${raw}T00:00:00+05:30` : raw;
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return raw;
-  return new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", month: "short" }).format(at);
 }
 
 function offerLabel(c: Campaign): string {
@@ -344,21 +418,6 @@ function soonestPost(campaigns: Campaign[], ready: (platform: string, businessId
     }
   }
   return best;
-}
-
-function offerParts(c: Campaign) {
-  const offer = c.brain?.offer;
-  const brief = c.brain?.brief;
-  const typed = displayOffer(brief?.offer?.trim() || "");
-  const figure = displayOffer(offer?.discount?.trim() || offer?.price?.trim() || typed);
-  if (!figure) return null;
-  let condition = "";
-  if (typed && typed !== figure) condition = typed.replace(figure, "").replace(/^[\s,·\-–]+/, "").trim();
-  else if (!typed) condition = offer?.duration_text?.trim() || "";
-  const start = offer?.start_date || brief?.event_date;
-  const end = offer?.end_date;
-  const dates = start && end && start !== end ? `${formatWhen(start)} – ${formatWhen(end)}` : formatWhen(start);
-  return { figure, condition, dates };
 }
 
 function cellFor(platform: string, language: string, campaign: Campaign, assets: Asset[] | undefined, isConnected: boolean, used: boolean) {
@@ -403,44 +462,49 @@ function shortLang(code: string) {
   return NATIVE[code] ?? LANGUAGES[code] ?? code;
 }
 
-function WaitingCard({ campaign, shopName, step, href, eyebrow = "Waiting on you", goesOut, connected }: {
-  campaign: Campaign; shopName: string; step: string; href: string; eyebrow?: string; goesOut?: string;
+function WaitingCard({ campaign, shopName, step, href, eyebrow = "Waiting on you", highlight, goesOut, connected }: {
+  campaign: Campaign; shopName: string; step: string; href: string; eyebrow?: string; highlight: boolean; goesOut?: string;
   connected: (platform: string) => boolean;
 }) {
+  const nav = useNavigate();
   const used = new Set(campaign.brain?.strategy?.platforms ?? []);
   const platforms = [...PLATFORMS];
   const languages = languagesOf(campaign);
   const offer = offerParts(campaign);
   const stage = journeyIndex(campaign.status);
   const posters = (campaign.assets ?? []).filter((a) => a.is_selected && a.media_url).slice(0, 4);
-  const heroPoster = posters[0];
-  const posterLangs = [...new Set(posters.map((a) => a.language))];
   const cells = platforms.flatMap((p) => languages.map((l) => ({ p, l, ...cellFor(p, l, campaign, campaign.assets, connected(p), used.has(p)) })));
-  const columns = `minmax(9rem, auto) repeat(${Math.max(languages.length, 1)}, 2.5rem)`;
+  const columns = `minmax(9rem, auto) repeat(${Math.max(languages.length, 1)}, 2.75rem)`;
 
   return (
-    <Link to={href} className={`block rounded-xl border border-slate-200 bg-white p-5 shadow-sm hover:border-brand-500 ${focusCls}`}>
-      <div className={heroPoster ? "grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_16rem]" : ""}>
+    <BorderBeam active={highlight} radius="rounded-3xl">
+      <div className={`${highlight ? "" : "lm-card rounded-3xl border"} grid items-center gap-10 bg-white p-6 sm:p-8 lg:grid-cols-[minmax(0,1fr)_17rem]`}>
         <div>
-          <p className="flex items-center gap-2 text-sm text-slate-600">
-            {eyebrow === "Needs an account" && <span aria-hidden="true" className="h-2 w-2 rounded-full bg-amber-500" />}
+          <p className="lm-glass inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium text-slate-700">
+            <span aria-hidden="true" className="relative flex h-2 w-2">
+              {highlight && <span className="lm-pulse-ring absolute inset-0 rounded-full bg-brand-500" />}
+              <span className={`relative h-2 w-2 rounded-full ${eyebrow === "Needs an account" ? "bg-amber-500" : "bg-brand-600"}`} />
+            </span>
             {eyebrow}
           </p>
-          <p className="text-2xl font-semibold">{campaign.title} <span className="font-normal text-slate-600">· {shopName}</span></p>
+          <Link to={href} className={`mt-3 block rounded-lg ${focusCls}`}>
+            <span className="font-display text-4xl leading-none text-slate-900 hover:underline">{campaign.title}</span>
+            <span className="ml-2 text-base text-slate-600">· {shopName}</span>
+          </Link>
           {offer && <OfferStrip figure={offer.figure} condition={offer.condition} dates={offer.dates} />}
           {platforms.length > 0 && languages.length > 0 && (
-            <div className="mt-5 grid items-center gap-x-3 gap-y-2" style={{ gridTemplateColumns: columns }}>
+            <div className="mt-6 grid items-center gap-x-3 gap-y-2" style={{ gridTemplateColumns: columns }}>
               <span />
               {languages.map((l) => (
-                <span key={l} className="text-center text-xs text-slate-600">{shortLang(l)}</span>
+                <span key={l} className="text-center text-xs font-medium text-slate-600">{shortLang(l)}</span>
               ))}
               {platforms.map((p) => {
                 const name = PLATFORM_NAME[p] ?? cap(p);
                 const missed = languages.every((l) => cells.find((c) => c.p === p && c.l === l)?.word === "Not connected");
                 return (
-                  <div key={p} className={`col-span-full grid items-center gap-x-3 rounded-xl px-3 py-2 ${missed ? "bg-amber-50" : "bg-slate-100"}`} style={{ gridTemplateColumns: columns }}>
+                  <div key={p} className={`col-span-full grid items-center gap-x-3 rounded-xl px-3 py-2 ${missed ? "bg-amber-50" : used.has(p) ? "bg-[#fdf1e4] dark:bg-[#1c1917]" : "bg-[#faf6f0] dark:bg-[#141210]"}`} style={{ gridTemplateColumns: columns }}>
                     <span className="flex items-center gap-2 text-sm font-medium text-slate-900">
-                      <PlatformGlyph platform={p} />
+                      <PlatformIcon platform={p} className="h-5 w-5 text-slate-900" />
                       {name}
                     </span>
                     {languages.map((l) => {
@@ -452,13 +516,18 @@ function WaitingCard({ campaign, shopName, step, href, eyebrow = "Waiting on you
               })}
             </div>
           )}
-          <ol aria-label={`Step ${stage + 1} of ${JOURNEY.length}: ${JOURNEY[stage]}`} className="mt-5">
-            <div aria-hidden="true" className="flex gap-1">
+          <ol aria-label={`Step ${stage + 1} of ${JOURNEY.length}: ${JOURNEY[stage]}`} className="mt-6">
+            <div aria-hidden="true" className="flex gap-1.5">
               {JOURNEY.map((label, i) => (
-                <span key={label} className={`h-1.5 flex-1 rounded-full ${i < stage ? "bg-emerald-500" : i === stage ? "bg-brand-700" : "bg-slate-300 dark:bg-slate-600"}`} />
+                <span key={label} className="h-2 flex-1 overflow-hidden rounded-full bg-[#f1e3d1] dark:bg-[#292524]">
+                  <span className="block h-full rounded-full" style={{
+                    width: i <= stage ? "100%" : "0%",
+                    backgroundImage: i < stage ? "linear-gradient(90deg,#059669,#10b981)" : "linear-gradient(90deg,#ea580c,#db2777)",
+                  }} />
+                </span>
               ))}
             </div>
-            <div className="mt-2 flex gap-1">
+            <div className="mt-2 flex gap-1.5">
               {JOURNEY.map((label, i) => (
                 <span key={label} className={`flex-1 text-xs ${i === stage ? "font-semibold text-brand-700" : i < stage ? "text-emerald-800" : "text-slate-500"}`}>
                   {i < stage ? "✓ " : i === stage ? `${i + 1} ` : ""}{label}
@@ -466,46 +535,21 @@ function WaitingCard({ campaign, shopName, step, href, eyebrow = "Waiting on you
               ))}
             </div>
           </ol>
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-3">
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
             {goesOut
-              ? <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700"><ClockIcon />{goesOut}</span>
+              ? <span className="lm-glass inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs text-slate-700"><ClockIcon />{goesOut}</span>
               : <span />}
-            <p className="text-sm font-semibold text-brand-700">{step} →</p>
+            <Link to={href} className={`lm-cta inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white ${focusCls}`}>{step} →</Link>
           </div>
         </div>
-        {heroPoster && (
-          <div>
-            <img src={heroPoster.media_url!} alt={`${PLATFORM_NAME[heroPoster.platform] ?? cap(heroPoster.platform)}, ${LANGUAGES[heroPoster.language] ?? heroPoster.language}`} className="aspect-[3/4] w-full rounded-xl bg-slate-100 object-cover" />
-            {posterLangs.length > 0 && (
-              <div className="mt-3 flex flex-wrap justify-center gap-2">
-                {posterLangs.map((l) => <span key={l} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">{LANGUAGES[l] ?? l}</span>)}
-              </div>
-            )}
-          </div>
-        )}
+        <PostStack onOpen={() => nav(href)} fallback={<PosterFallback text={offer?.figure || campaign.title} />}
+          posters={posters.map((a) => ({
+            src: a.media_url!,
+            alt: `${PLATFORM_NAME[a.platform] ?? cap(a.platform)} post in ${LANGUAGES[a.language] ?? a.language}`,
+            tag: `${PLATFORM_NAME[a.platform] ?? cap(a.platform)} · ${shortLang(a.language)}`,
+          }))} />
       </div>
-    </Link>
-  );
-}
-
-function OfferStrip({ figure, condition, dates }: { figure: string; condition: string; dates: string }) {
-  const percent = figure.match(/^(\d{1,3}(?:\.\d+)?)%$/);
-  const conditionText = percent ? condition.replace(/^off\b[\s,·\-–]*/i, "").trim() : condition;
-  return (
-    <div className="mt-4 inline-flex max-w-full flex-wrap items-center gap-x-8 gap-y-2 rounded-xl bg-slate-100 px-4 py-3">
-      <p className={percent ? "inline-flex items-baseline gap-2" : figure.length > 12 ? "text-lg font-semibold text-slate-900" : "text-3xl font-semibold text-slate-900"}>
-        {percent
-          ? <><span className="text-4xl font-semibold text-brand-700">{percent[1]}%</span><span className="text-sm font-medium text-slate-600">off</span></>
-          : figure}
-      </p>
-      {conditionText && <p className="text-sm font-medium text-slate-900">{conditionText}</p>}
-      {dates && (
-        <p className="text-sm text-slate-600">
-          <span className="block text-xs">On</span>
-          <span className="font-medium text-slate-900">{dates}</span>
-        </p>
-      )}
-    </div>
+    </BorderBeam>
   );
 }
 
@@ -521,20 +565,6 @@ function StatusMark({ kind, label }: { kind: "ready" | "wait" | "fail" | "miss" 
     <span role="img" title={label} aria-label={label} className={`mx-auto flex h-7 w-7 items-center justify-center rounded-full ${tone}`}>
       <Mark kind={kind} />
     </span>
-  );
-}
-
-function PlatformGlyph({ platform }: { platform: string }) {
-  const paths: Record<string, string> = {
-    instagram: "M4 2.5h8A1.5 1.5 0 0 1 13.5 4v8a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V4A1.5 1.5 0 0 1 4 2.5z M8 5.2a2.8 2.8 0 1 1 0 5.6 2.8 2.8 0 0 1 0-5.6z M11.6 4.5h.1",
-    whatsapp: "M8 2.2a5.8 5.8 0 0 0-5 8.7L2.2 13.8l3-0.8A5.8 5.8 0 1 0 8 2.2z",
-    facebook: "M9 13.5V8.6h1.6l.3-1.8H9V5.7c0-.5.2-.9.9-.9H11V3.1C10.8 3.1 10.2 3 9.5 3 8 3 7 3.9 7 5.5v1.3H5.4v1.8H7v4.9H9z",
-    linkedin: "M3.2 6.2h2.1V13H3.2z M4.2 3.1a1.2 1.2 0 1 1 0 2.4 1.2 1.2 0 0 1 0-2.4z M6.8 6.2H8.8v.9c.3-.5.9-1 2-1 1.8 0 2.4 1.1 2.4 2.8V13H11.2V9.2c0-.8-.3-1.4-1.1-1.4s-1.2.6-1.2 1.5V13H6.8V6.2z",
-  };
-  return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" className="h-4 w-4 shrink-0">
-      <path d={paths[platform] ?? "M8 2.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11z"} fill="none" stroke="currentColor" strokeWidth="1.2" />
-    </svg>
   );
 }
 

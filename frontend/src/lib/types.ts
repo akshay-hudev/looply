@@ -42,7 +42,7 @@ export interface Locality {
   data_source: string | null;
   signals: { type: string; count: number; examples: string[]; nearest_m: number | null }[];
   insights: { signal: string; interpretation: string; relevance: string }[];
-  language_signals: { language: string; reason: string }[];
+  language_signals: { language: string; reason: string; rank?: number }[];
 }
 export interface Strategy {
   objective: string;
@@ -76,7 +76,25 @@ export interface Brief {
   tone?: string;
   highlights?: string;
 }
+export interface AudienceSegment {
+  name: string;
+  priority?: "primary" | "secondary";
+  motivation?: string;
+  tone?: string;
+  platforms?: string[];
+  languages?: string[];
+  formats?: string[];
+}
+export interface CoreMessage {
+  headline?: string;
+  key_message?: string;
+  value_props?: string[];
+  must_include?: string[];
+  cta_options?: string[];
+}
 export interface Brain {
+  audiences?: AudienceSegment[];
+  core_message?: CoreMessage | null;
   brief?: Brief;
   files?: OwnerFile[];
   requested_languages?: string[];

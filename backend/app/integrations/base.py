@@ -47,9 +47,13 @@ class PublishAdapter(Protocol):
 def require_publishable_media(asset: Asset) -> None:
     urls = [asset.media_url or "", *((asset.content or {}).get("slide_urls") or [])]
     if any(u.lower().endswith(".svg") for u in urls):
-        raise AdapterError("This creative is a Looply preview (composed without an image/video model). "
-                           "Add AGNES_API_KEY (or another image provider) and regenerate it before publishing "
-                           "to a real account, or publish to a simulated account.")
+        if (asset.content or {}).get("media_source") == "storyboard":
+            raise AdapterError("This reel is an animated storyboard (a moving picture, not a video file), so the "
+                               "platform can't take it as a video. Publish it to a simulated account, or post the "
+                               "poster instead.")
+        raise AdapterError("This creative is a Looply preview (composed without an image model). Add "
+                           "ANTHROPIC_API_KEY (Claude designs a publishable poster) or AGNES_API_KEY and regenerate "
+                           "it before publishing to a real account, or publish to a simulated account.")
 
 
 def caption(asset: Asset) -> str:

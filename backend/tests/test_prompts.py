@@ -29,7 +29,7 @@ SCHEMAS = {
     "campaign_manager": Extraction, "business": BusinessProfile, "locality": LocalityInterpretation,
     "audience": AudienceOutput, "strategy": StrategyOutput, "content_director": BriefsOutput, "text": CoreMessage,
     "platform_instagram": PlatformOutput, "platform_whatsapp": PlatformOutput, "platform_linkedin": PlatformOutput,
-    "platform_facebook": PlatformOutput, "language_culture": LocalizationOutput, "truth": TruthOutput,
+    "platform_facebook": PlatformOutput, "platform_youtube": PlatformOutput, "language_culture": LocalizationOutput, "truth": TruthOutput,
     "performance": PerformanceOutput, "optimizer": OptimizationOutput, "visual": VisualPrompt, "video": VideoPlan,
     "analytics": AnalyticsOutput,
 }

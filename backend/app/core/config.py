@@ -1,10 +1,14 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Always read backend/.env, even when the API is started from another folder.
+_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore")
 
     app_name: str = "Looply"
     environment: str = "development"
@@ -45,6 +49,13 @@ class Settings(BaseSettings):
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai"
     gemini_text_model: str = "gemini-2.0-flash"
 
+    # Claude designs posters and reel storyboards as SVG when a key is set (Claude does not output
+    # raster images). Each poster is also rendered to PNG so the platforms can publish it.
+    anthropic_api_key: str = ""
+    claude_design_model: str = "claude-sonnet-5-5"
+    claude_design_effort: str = "medium"  # low | medium | high | xhigh | max
+    claude_design_concurrency: int = 4
+
     text_providers: str = "agnes,openai,gemini"
     image_providers: str = "agnes,openai"
     video_providers: str = "agnes"
@@ -67,11 +78,14 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
     local_media_dir: str = "./media"
 
-    # Speech
-    stt_provider: str = "openai"  # openai (whisper) | bhashini
+    # Speech. "local" runs multilingual Whisper on this machine and needs no speech key.
+    stt_provider: str = "openai"  # local | openai (whisper) | bhashini
     stt_api_key: str = ""
     stt_base_url: str = "https://api.openai.com/v1"
     stt_model: str = "whisper-1"
+    stt_local_model: str = "small"  # multilingual; not small.en
+    stt_local_device: str = "cpu"
+    stt_local_compute_type: str = "int8"
     tts_model: str = "tts-1"
     bhashini_api_key: str = ""
     bhashini_url: str = ""  # inference callback URL from the Bhashini pipeline config call
@@ -90,6 +104,8 @@ class Settings(BaseSettings):
     whatsapp_verify_token: str = ""
     linkedin_client_id: str = ""
     linkedin_client_secret: str = ""
+    youtube_client_id: str = ""
+    youtube_client_secret: str = ""
 
     max_truth_retries: int = 3
     max_optimization_rounds: int = 2

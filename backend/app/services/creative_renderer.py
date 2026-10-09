@@ -125,12 +125,51 @@ def _badge(cx: int, cy: int, r: int, p: Palette, top: str, bottom: str) -> str:
             f'fill="{p.accent_ink}" text-anchor="middle" letter-spacing="3">{escape(bottom)}</text>')
 
 
+@dataclass
+class _Middle:
+    top: int
+    head_lines: list[str]
+    head_size: int
+    sup_lines: list[str]
+    sup_size: int
+    badge_r: int
+    bottom: int  # y where the middle block ends
+
+
+def _fit_middle(copy: CreativeCopy, w: int, pad: int, tall: bool, top: int, limit: int) -> _Middle:
+    """Headline, support line and offer badge sized to end above `limit`.
+
+    Gives up space in this order: support lines, then headline and badge size together.
+    """
+    head_base, head_max = (120, 4) if tall else (104, 3)
+    badge_ratio = 0.17 if tall else 0.15
+    has_badge = bool(copy.discount or copy.price)
+    price_line = 60 if copy.discount and copy.price else 0
+    plan = None
+    for sup_max in ([3, 2, 1, 0] if copy.support else [0]):
+        for scale in (1.0, 0.86, 0.74, 0.64, 0.55):
+            lines_max = head_max if scale > 0.7 else max(2, head_max - 1)
+            head_lines, head_size = _fit(copy.headline, w - 2 * pad, int(head_base * scale), lines_max)
+            y = top + head_size + int(len(head_lines) * head_size * 1.08)
+            sup_lines, sup_size = [], 0
+            if sup_max:
+                sup_lines, sup_size = _fit(copy.support, w - 2 * pad - 40, int(46 * max(scale, 0.75)), sup_max)
+                y += 30 + int(len(sup_lines) * sup_size * 1.3)
+            r = int(w * badge_ratio * max(scale, 0.6)) if has_badge else 0
+            if r:
+                y += 2 * r + 40 + price_line  # badge bottom edge (+ the price line under it)
+            plan = _Middle(top, head_lines, head_size, sup_lines, sup_size, r, y)
+            if y <= limit:
+                return plan
+    return plan
+
+
 def compose_image(fmt: str, copy: CreativeCopy) -> str:
     w, h = SIZES.get(fmt, (1080, 1080))
     p = palette_for(copy.category, copy.brand, copy.headline)
     pad = 80
     tall = h / w > 1.5
-    parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">',
+    parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}" overflow="hidden">',
              f'<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="{p.bg1}"/>'
              f'<stop offset="1" stop-color="{p.bg2}"/></linearGradient></defs>',
              f'<rect width="{w}" height="{h}" fill="url(#g)"/>', _decor(w, h, p)]
@@ -144,31 +183,32 @@ def compose_image(fmt: str, copy: CreativeCopy) -> str:
         parts.append(f'<text x="{w - pad}" y="{pad + 40}" font-family="{FONT}" font-size="30" font-weight="700" '
                      f'fill="{p.soft}" text-anchor="end">{escape(copy.slide_label)}</text>')
 
-    y += int(h * (0.10 if tall else 0.06))
-    head_lines, head_size = _fit(copy.headline, w - 2 * pad, 120 if tall else 104, 4 if tall else 3)
-    block, y = _text_block(head_lines, w // 2, y + head_size, head_size, p.ink, 900, leading=1.08)
+    # The bottom band (date, CTA, place) is pinned to the bottom edge. The middle (headline, support,
+    # badge) must end above it, so shrink the middle until it fits instead of letting it run over.
+    bottom_y = h - pad - (220 if tall else 150)
+    when_lines, when_size = _fit(copy.when, w - 2 * pad, 40, 1) if copy.when else ([], 0)
+    limit = (bottom_y - 30 - when_size - 24) if copy.when else bottom_y - 24
+    m = _fit_middle(copy, w, pad, tall, y + int(h * (0.10 if tall else 0.06)), limit)
+
+    block, y = _text_block(m.head_lines, w // 2, m.top + m.head_size, m.head_size, p.ink, 900, leading=1.08)
     parts.append(block)
 
-    if copy.support:
-        sup_lines, sup_size = _fit(copy.support, w - 2 * pad - 40, 46, 3)
-        block, y = _text_block(sup_lines, w // 2, y + 30, sup_size, p.soft, 500, leading=1.3)
+    if m.sup_lines:
+        block, y = _text_block(m.sup_lines, w // 2, y + 30, m.sup_size, p.soft, 500, leading=1.3)
         parts.append(block)
 
-    if copy.discount or copy.price:
-        r = int(w * (0.17 if tall else 0.15))
-        cy = y + r + 40
+    if m.badge_r:
+        cy = y + m.badge_r + 40
         top = copy.discount.replace(" off", "").replace(" OFF", "") if copy.discount else copy.price
         bottom = "OFF" if copy.discount and "%" in copy.discount else ("ONLY" if not copy.discount else "OFFER")
-        parts.append(_badge(w // 2, cy, r, p, top, bottom))
-        y = cy + r + 30
+        parts.append(_badge(w // 2, cy, m.badge_r, p, top, bottom))
+        y = cy + m.badge_r + 30
         if copy.discount and copy.price:
             parts.append(f'<text x="{w // 2}" y="{y + 40}" font-family="{FONT}" font-size="44" font-weight="800" '
                          f'fill="{p.ink}" text-anchor="middle">{escape(copy.price)}</text>')
             y += 60
 
-    bottom_y = h - pad - (220 if tall else 150)
-    if copy.when:
-        when_lines, when_size = _fit(copy.when, w - 2 * pad, 40, 1)
+    if when_lines:
         block, _ = _text_block(when_lines, w // 2, bottom_y - 30, when_size, p.accent, 700)
         parts.append(block)
     if copy.cta:
@@ -193,7 +233,7 @@ def compose_storyboard(copy: CreativeCopy, scenes: list[dict], duration_s: int =
         scenes = [*scenes, {"overlay_text": copy.cta, "visual": "End card"}]
     n = len(scenes)
     dur = max(duration_s, 2 * n)
-    parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">',
+    parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}" overflow="hidden">',
              f'<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{p.bg1}"/>'
              f'<stop offset="1" stop-color="{p.bg2}"/></linearGradient></defs>',
              f'<rect width="{w}" height="{h}" fill="url(#g)"/>', _decor(w, h, p),

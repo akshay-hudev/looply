@@ -1,4 +1,5 @@
-"""Video Content Agent: plans a reel and submits it to Agnes Video 2.5 (async; polled by the worker)."""
+"""Video Content Agent: plans a reel, then either Claude designs it as an animated SVG storyboard
+(when ANTHROPIC_API_KEY is set) or it is submitted to Agnes Video 2.5 (async; polled by the worker)."""
 
 import logging
 
@@ -10,6 +11,7 @@ from app.agents.visual import OFFLINE_PROVIDERS, creative_copy, owner_images
 from app.graph.context import PipelineContext
 from app.graph.state import language_name
 from app.models import Asset
+from app.services.claude_designer import DesignError, get_designer
 from app.services.creative_renderer import compose_storyboard
 from app.services.media_service import MediaService
 
@@ -51,6 +53,11 @@ async def submit(ctx: PipelineContext, asset: Asset) -> Asset:
         asset.content = {**(asset.content or {}), "video_script": {
             "duration_s": plan.duration_s, "aspect_ratio": plan.aspect_ratio,
             "scenes": [s.model_dump() for s in plan.scenes]}, "video_hook": plan.hook}
+        designer = get_designer(ctx.settings)
+        if designer is not None:
+            await claude_storyboard(ctx, asset, designer)
+            ctx.db.commit()
+            return asset
         try:
             frame = next((im["url"] for im in owner_images(brain) if im["role"] != "logo"), None)
             if frame is None:
@@ -72,6 +79,34 @@ async def submit(ctx: PipelineContext, asset: Asset) -> Asset:
         asset.content = {**(asset.content or {}), "media_error": str(e)[:500]}
     ctx.db.commit()
     return asset
+
+
+async def claude_storyboard(ctx: PipelineContext, asset: Asset, designer, media: MediaService | None = None) -> None:
+    """Claude designs the reel as an animated SVG storyboard. It previews in the app; it is not a video file."""
+    media = media or MediaService(ctx.settings)
+    brain = ctx.brain()
+    c = asset.content or {}
+    script = c.get("video_script") or {}
+    copy = creative_copy(asset, brain, headline=c.get("video_hook") or c.get("hook") or c.get("headline"))
+    brief = {
+        "platform": asset.platform, "format": asset.format,
+        "language": {"code": asset.language, "name": language_name(asset.language)},
+        "brand": {"name": brain.business.name, "category": brain.business.category},
+        "hook": copy.headline, "call_to_action": copy.cta,
+        "locked_facts": {"discount": copy.discount, "price": copy.price, "when": copy.when, "place": copy.place},
+        "tone": brain.strategy.tone, "owner_correction_notes": c.get("user_correction"),
+    }
+    try:
+        svg = await designer.storyboard(brief, [s for s in script.get("scenes") or [] if s], int(script.get("duration_s") or 10))
+    except DesignError as e:
+        log.warning("claude could not design the reel for asset %s, using the composed storyboard: %s", asset.id, e)
+        storyboard(ctx, asset, media, note="Claude couldn't design this reel, so LOOPLY composed the storyboard.")
+        return
+    asset.media_task_id = None
+    asset.media_url = media.put(svg.encode("utf-8"), org_id=asset.org_id, ext="svg")
+    asset.media_status = "ready"
+    content = {k: v for k, v in c.items() if k not in ("media_error", "media_note")}
+    asset.content = {**content, "media_source": "storyboard", "storyboard_by": "claude", "design_model": designer.model}
 
 
 def storyboard(ctx: PipelineContext, asset: Asset, media: MediaService | None = None, note: str | None = None) -> None:

@@ -80,6 +80,12 @@ def test_same_picture_can_go_to_youtube_or_become_a_new_version(client, auth):
     assert posted["target_platform"] == "x"
 
 
+def test_owner_can_delete_a_campaign(client, auth):
+    _, cid = _approved(_org(auth))
+    assert client.delete(f"/api/campaigns/{cid}", headers=auth).status_code == 204
+    assert client.get(f"/api/campaigns/{cid}", headers=auth).status_code == 404
+
+
 def test_publish_requires_approval_and_mock_publishes(client, auth):
     biz_id, cid = _approved(_org(auth))
     with SessionLocal() as db:
@@ -251,3 +257,64 @@ def test_whatsapp_waits_for_template_then_sends_only_to_opted_in(client, auth):
         assert job.status == "published", job.error
         assert send.call_count == 1 and job.result["sent"] == 1
         assert b"919800000001" in send.calls[0].request.content
+
+
+@respx.mock
+def test_youtube_short_uploads_a_video(client, auth):
+    _, cid = _approved(_org(auth), platform="youtube", fmt="short", kind="video",
+                       media_url="https://cdn.example/clip.mp4")
+    respx.get("https://cdn.example/clip.mp4").mock(
+        return_value=httpx.Response(200, content=b"fake-video", headers={"content-type": "video/mp4"}))
+    respx.post(url__regex=r"https://www.googleapis.com/upload/youtube/v3/videos.*").mock(
+        return_value=httpx.Response(200, headers={"Location": "https://upload.example/session"}))
+    uploaded = respx.put("https://upload.example/session").mock(
+        return_value=httpx.Response(200, json={"id": "vid123"}))
+    with SessionLocal() as db:
+        asset = db.query(Asset).filter_by(campaign_id=cid).one()
+        acct = SocialAccount(org_id=asset.org_id, platform="youtube", external_id="UCcafe",
+                             access_token_enc=encrypt("tok"), meta={"kind": "channel"})
+        db.add(acct)
+        db.flush()
+        job = PublishJob(org_id=asset.org_id, campaign_id=cid, asset_id=asset.id, social_account_id=acct.id,
+                         platform="youtube")
+        db.add(job)
+        db.commit()
+        asyncio.run(execute_job(db, job))
+        assert job.status == "published", job.error
+        assert job.external_post_id == "vid123"
+        assert job.result["url"] == "https://www.youtube.com/watch?v=vid123"
+        body = uploaded.calls[0].request.content
+        assert body == b"fake-video"
+
+
+def test_youtube_image_is_not_uploaded(client, auth):
+    _, cid = _approved(_org(auth), platform="youtube", fmt="post", kind="image")
+    with SessionLocal() as db:
+        asset = db.query(Asset).filter_by(campaign_id=cid).one()
+        acct = SocialAccount(org_id=asset.org_id, platform="youtube", external_id="UCcafe",
+                             access_token_enc=encrypt("tok"), meta={"kind": "channel"})
+        db.add(acct)
+        db.flush()
+        job = PublishJob(org_id=asset.org_id, campaign_id=cid, asset_id=asset.id, social_account_id=acct.id,
+                         platform="youtube")
+        db.add(job)
+        db.commit()
+        asyncio.run(execute_job(db, job))
+        assert job.status == "failed"
+        assert "picture" in job.error.lower()
+
+
+@respx.mock
+def test_youtube_login_saves_the_channel(client, auth):
+    from app.services.oauth_service import complete_youtube
+
+    respx.post("https://oauth2.googleapis.com/token").mock(return_value=httpx.Response(200, json={
+        "access_token": "ya29.test", "refresh_token": "rt", "expires_in": 3600, "scope": "youtube.upload"}))
+    respx.get("https://www.googleapis.com/youtube/v3/channels").mock(return_value=httpx.Response(200, json={
+        "items": [{"id": "UCcafe", "snippet": {"title": "Cafe Channel", "customUrl": "@cafe"}}]}))
+    with SessionLocal() as db:
+        accounts = asyncio.run(complete_youtube(db, "code", _org(auth), None))
+        assert accounts[0].platform == "youtube"
+        assert accounts[0].external_id == "UCcafe"
+        assert accounts[0].display_name == "Cafe Channel"
+        assert accounts[0].refresh_token_enc

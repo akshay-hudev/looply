@@ -1,11 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
-import { ReactNode, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { api } from "../lib/api";
 import { displayOffer } from "../lib/offer";
-import { Brief, Business, LANGUAGES, OwnerFile, PLATFORM_LABELS, PLATFORMS } from "../lib/types";
-import { Button, Card, DocumentTitle, ErrorNote, Field, focusCls, idleCls, inputCls, selectedCls, Stepper } from "../lib/ui";
+import { Brief, Business, OwnerFile, PLATFORM_LABELS, PLATFORMS } from "../lib/types";
+import { InfoTip } from "../components/CampaignParts";
+import { LOOP_GRADIENT } from "../components/fx";
+import { PlatformIcon } from "../components/PlatformIcon";
+import { ChipPicker, ChoiceCard, IconTiles, LanguagePicker, LivePoster, PlatformCards, StyleCards, Ticket, WizardRail } from "../components/WizardParts";
+import { Button, DocumentTitle, ErrorNote, focusCls, idleCls, inputCls, selectedCls } from "../lib/ui";
+import { SpeechReady, SpeechStart } from "./SpeechStart";
 
 const FORMAT_CATALOG: Record<string, string[]> = {
   instagram: ["post", "story", "reel", "carousel", "poster"],
@@ -368,19 +373,19 @@ const TONES = [
   "Fun & youthful", "Warm & friendly", "Premium & elegant",
   "Bold & energetic", "Calm & trustworthy", "Witty & quirky",
 ];
-const STEPS = ["Your shop", "The promotion", "Who it's for", "Where it goes", "Check this"];
+const STEPS = [
+  { label: "Shop", icon: "🏪" }, { label: "Offer", icon: "🏷️" }, { label: "Who", icon: "👥" },
+  { label: "Where", icon: "📣" }, { label: "Check", icon: "🎟️" },
+];
+const GOAL_ICONS: Record<string, string> = {
+  "Make people aware we exist": "👀", "More walk-in visits": "🚶", "More orders / enquiries": "📞",
+  "Fill the weekend": "📅", "Promote an offer": "🏷️", "Launch something new": "🚀", "Build brand loyalty": "❤️",
+};
+const TONE_ICONS: Record<string, string> = {
+  "Fun & youthful": "😄", "Warm & friendly": "🤝", "Premium & elegant": "💎",
+  "Bold & energetic": "⚡", "Calm & trustworthy": "🛡️", "Witty & quirky": "😜",
+};
 
-function offerLine(brief: Brief): string {
-  const typed = brief.offer?.trim();
-  if (typed) return displayOffer(typed);
-  return "No price or deal. We won't invent one.";
-}
-function langList(codes: string[]) {
-  return codes.map((c) => LANGUAGES[c] ?? c).join(", ");
-}
-function cap(s: string) {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
 
 type CampaignStart = {
   business_id: string | null; region: string | null; languages: string[]; note: string | null;
@@ -408,6 +413,7 @@ export default function NewCampaign() {
   const [codeSwitchingStyle, setCodeSwitchingStyle] = useState<"kanglish_hinglish" | "native_pure">("kanglish_hinglish");
   const [skipReview, setSkipReview] = useState(false);
   const [allowBlank, setAllowBlank] = useState(false);
+  const [screen, setScreen] = useState<"form" | "speak">("form");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [userSelectedDomain, setUserSelectedDomain] = useState<string | null>(null);
@@ -471,9 +477,31 @@ export default function NewCampaign() {
   const canNext = [!!businessId, named || allowBlank, true, formatsReady && languages.length > 0, true][step];
   const product = brief.product?.trim();
 
-  function toggleFormat(platform: string, fmt: string) {
-    const cur = formats[platform] ?? [];
-    setFormats({ ...formats, [platform]: cur.includes(fmt) ? cur.filter((f) => f !== fmt) : [...cur, fmt] });
+
+  function pourSpeech(ready: SpeechReady, nextStep: number) {
+    const dialect: Record<string, string> = { kn_en: "kn", hi_en: "hi", ta_en: "ta" };
+    const spokenLanguages = [...new Set(ready.languages.map((code) => dialect[code] ?? code))];
+    setBrief((current) => ({
+      ...current,
+      product: ready.product,
+      offer: ready.offer,
+      audience: ready.audience,
+      goal: ready.goal,
+      occasion: ready.occasion,
+      event_date: ready.event_date,
+      tone: ready.tone,
+      highlights: ready.highlights,
+      region: ready.region || current.region,
+    }));
+    setLanguages(spokenLanguages.length ? spokenLanguages : ["en"]);
+    setCodeSwitching(ready.codeSwitching);
+    setCodeSwitchingStyle(ready.codeSwitching ? "kanglish_hinglish" : "native_pure");
+    setMode(ready.mode);
+    if (ready.mode === "user") setFormats(ready.formats);
+    setMessage(ready.note?.trim() || ready.transcript);
+    setAllowBlank(ready.allowBlank);
+    setScreen("form");
+    setStep(nextStep);
   }
 
   async function submit() {
@@ -498,384 +526,277 @@ export default function NewCampaign() {
 
   const nextLabel = [
     biz ? `Continue with ${biz.name}` : "Continue",
-    "Save this promotion",
-    "Choose where it goes",
+    "Next: who it's for",
+    "Next: where it goes",
     product ? `Review ${product}` : "Review this",
   ][step];
 
+  const details = [brief.product, brief.offer, brief.event_date || brief.occasion, brief.audience, brief.goal, brief.tone, brief.highlights, brief.region];
+  const filled = details.filter((d) => !!d?.trim()).length;
+  const chosenPlatforms = Object.keys(chosen);
+  const formatCount = Object.values(chosen).reduce((n, list) => n + list.length, 0);
+  const when = [brief.occasion, brief.event_date ? fmtDate(brief.event_date) : ""].filter(Boolean).join(" · ");
+
   return (
-    <div className="mx-auto max-w-5xl space-y-4">
+    <div className="mx-auto max-w-6xl space-y-6">
       <DocumentTitle title={biz?.name ?? "New campaign"} />
       <div>
-        <h1 className="text-2xl font-bold">{biz?.name ?? "New campaign"}</h1>
-        {biz && <p className="text-sm text-slate-600">{[biz.category, biz.city].filter(Boolean).join(" · ")}</p>}
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-700">New campaign</p>
+        <h1 className="font-display text-5xl leading-none text-slate-900">{biz?.name ?? "Pick a shop"}</h1>
+        {biz && <p className="mt-1 text-sm text-slate-600">{[biz.category, biz.city].filter(Boolean).join(" · ")}</p>}
       </div>
-      <Stepper steps={STEPS} step={step} onJump={(i) => i < step && setStep(i)} />
+      {screen === "form" && <WizardRail steps={STEPS} step={step} onJump={(i) => i < step && setStep(i)} />}
 
-      <div className={step > 0 ? "grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]" : ""}>
-        <div className="space-y-4">
+      {screen === "speak" && (
+        <SpeechStart
+          shopRegion={brief.region || [biz?.address, biz?.city].filter(Boolean).join(", ")}
+          platforms={[...PLATFORMS]}
+          platformLabels={PLATFORM_LABELS}
+          formatCatalog={FORMAT_CATALOG}
+          formatLabels={FORMAT_LABELS}
+          presets={PRESETS}
+          onReady={(ready) => pourSpeech(ready, 4)}
+          onTypeInstead={(ready) => ready ? pourSpeech(ready, 1) : (setScreen("form"), setStep(1))}
+        />
+      )}
+
+      {screen === "form" && (
+      <div className={step > 0 ? "grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]" : ""}>
+        <div className="space-y-5">
           {step === 0 && (
-            <Card className="space-y-3">
-              <StepTitle title="Which shop is this for?" hint="The name, category, and city stay with you through every step." />
+            <section className="lm-card space-y-6 rounded-3xl border bg-white p-5 sm:p-6">
+              <StepHead title="Which shop?" />
               {businesses.isLoading ? <p className="text-sm text-slate-600">Loading businesses</p>
                 : businesses.isError ? <ErrorNote error={new Error("Couldn't load your businesses. Try again.")} />
                 : (businesses.data ?? []).length === 0 ? (
-                <p className="text-sm text-amber-800">A campaign needs a business, the place you're promoting. <Link className="underline" to="/businesses/new">Add a business</Link>.</p>
+                <p className="text-sm text-amber-800">Add the place you're promoting first. <Link className="underline" to="/businesses/new">Add a business</Link>.</p>
               ) : (
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {(businesses.data ?? []).map((b) => (
-                    <button key={b.id} type="button" onClick={() => setBusinessId(b.id)}
-                      className={`rounded-xl border p-3 text-left ${focusCls} ${businessId === b.id ? "border-brand-600 bg-brand-50 ring-1 ring-brand-600" : "border-slate-200 hover:bg-slate-50"}`}>
-                      <div className="font-semibold">{b.name}</div>
-                      <div className="text-xs text-slate-500">{[b.category, b.city].filter(Boolean).join(" · ") || "No details yet"}</div>
-                    </button>
-                  ))}
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {(businesses.data ?? []).map((b) => {
+                    const on = businessId === b.id;
+                    const dom = DOMAIN_PROFILES[detectDomain(b.name, b.category)] ?? DOMAIN_PROFILES.general_retail;
+                    return (
+                      <button key={b.id} type="button" aria-pressed={on} onClick={() => setBusinessId(b.id)}
+                        className={`flex items-center gap-3 rounded-2xl border-2 p-3 text-left transition duration-200 motion-reduce:transition-none ${focusCls} ${on ? "border-brand-600 bg-brand-50 shadow-md" : "border-[#f1e3d1] bg-white hover:-translate-y-0.5 hover:border-brand-300 dark:border-[#292524]"}`}>
+                        <span aria-hidden="true" className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl font-display text-2xl text-[#ffffff]" style={{ backgroundImage: LOOP_GRADIENT }}>
+                          {[...b.name.trim()][0]?.toUpperCase()}
+                          <span className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-white text-sm shadow">{dom.icon}</span>
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate font-semibold text-slate-900">{b.name}</span>
+                          <span className="block truncate text-xs text-slate-500">{[b.category, b.city].filter(Boolean).join(" · ") || "No details yet"}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                  <Link to="/businesses/new" className={`flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[#e7d8c6] p-3 text-sm font-medium text-slate-600 hover:border-brand-300 hover:text-slate-900 dark:border-[#292524] ${focusCls}`}>
+                    <span aria-hidden="true" className="text-lg">＋</span> Add a business
+                  </Link>
                 </div>
               )}
-              <Link to="/businesses/new"><Button kind="ghost" small>+ Add another business</Button></Link>
-            </Card>
+              {businessId && (
+                <div>
+                  <p className="mb-2 text-sm font-semibold text-slate-900">How do you want to tell us?</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <ChoiceCard icon="🎤" title="Say it" line="Answer 5 quick questions out loud." on={false} onClick={() => setScreen("speak")} />
+                    <ChoiceCard icon="⌨️" title="Type it" line="Fill in the details step by step." on={false} onClick={() => setStep(1)} />
+                  </div>
+                </div>
+              )}
+            </section>
           )}
 
           {step === 1 && (
-            <Card className="space-y-4">
-              <StepTitle title={`What is ${biz?.name ?? "this shop"} promoting?`} hint="The offer, date, and what makes you special stay locked. We never invent a price. Click multiple options to provide richer details." />
-              <Field label="What are you promoting?">
-                <input className={inputCls} value={brief.product ?? ""} onChange={(e) => set("product")(e.target.value)}
-                  placeholder={`e.g. New Stock Launch, our signature ${biz?.name ? `${biz.name} collection` : "collection"}`} />
-              </Field>
+            <section className="lm-card space-y-6 rounded-3xl border bg-white p-5 sm:p-6">
+              <StepHead title="What's the offer?" tip="The offer, date and what makes you special stay locked. LOOPLY never invents a price." />
+              <label className="block">
+                <span className="text-sm font-semibold text-slate-900">🛍️ Promoting</span>
+                <input className={`${inputCls} mt-1.5 py-3 text-base`} value={brief.product ?? ""} onChange={(e) => set("product")(e.target.value)}
+                  placeholder="e.g. New stock launch, Diwali sweets box" />
+              </label>
               {!named && (
-                <div className="space-y-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                  <p>Name what you're promoting, or the draft stays general. No offer or price will be invented.</p>
-                  <label className="flex items-center gap-2">
-                    <input type="checkbox" checked={allowBlank} onChange={(e) => setAllowBlank(e.target.checked)} />
-                    Continue without naming it
+                <label className="-mt-3 flex items-center gap-2 text-xs text-slate-600">
+                  <input type="checkbox" checked={allowBlank} onChange={(e) => setAllowBlank(e.target.checked)} />
+                  Skip naming it (the posts stay general)
+                </label>
+              )}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="text-sm font-semibold text-slate-900">🏷️ Offer or price</span>
+                  <input className={`${inputCls} mt-1.5`} value={brief.offer ?? ""} onChange={(e) => set("offer")(e.target.value)} placeholder="e.g. 15% off, ₹149, Buy 1 Get 1" />
+                </label>
+                <label className="block">
+                  <span className="text-sm font-semibold text-slate-900">📅 Date</span>
+                  <input type="date" className={`${inputCls} mt-1.5`} value={brief.event_date ?? ""} onChange={(e) => set("event_date")(e.target.value)} />
+                </label>
+              </div>
+              <div className="space-y-2">
+                <span className="text-sm font-semibold text-slate-900">🎉 Occasion</span>
+                <input aria-label="Occasion" className={inputCls} value={brief.occasion ?? ""} onChange={(e) => set("occasion")(e.target.value)} placeholder="Type, or tap below" />
+                <ChipPicker label="Occasion ideas" options={contextualOccasions} value={brief.occasion} onPick={set("occasion")} />
+              </div>
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-slate-900">✨ What makes you special</span>
+                  <label className="lm-glass inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs text-slate-700">
+                    <span aria-hidden="true">{activeProfile.icon}</span>
+                    <select aria-label="Suggestions for" value={activeDomainKey}
+                      onChange={(e) => setUserSelectedDomain(e.target.value === detectedDomainKey ? null : e.target.value)}
+                      className="bg-transparent font-semibold text-slate-900 outline-none">
+                      {Object.entries(DOMAIN_PROFILES).map(([key, dom]) => <option key={key} value={key}>{dom.label}</option>)}
+                    </select>
                   </label>
                 </div>
-              )}
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <Field label="Offer or price">
-                    <input className={inputCls} value={brief.offer ?? ""} onChange={(e) => set("offer")(e.target.value)} placeholder="e.g. 15% off on orders above 900, ₹149, Buy 1 Get 1" />
-                  </Field>
-                </div>
-                <div>
-                  <Field label="Date">
-                    <input type="date" className={inputCls} value={brief.event_date ?? ""} onChange={(e) => set("event_date")(e.target.value)} />
-                  </Field>
-                </div>
-              </div>
-
-              {/* Occasion */}
-              <div className="space-y-2">
-                <Field label="Occasion (Select multiple or type)">
-                  <input className={inputCls} value={brief.occasion ?? ""} onChange={(e) => set("occasion")(e.target.value)} placeholder="e.g. festive season, Diwali, this weekend" />
-                </Field>
-                <Chips options={contextualOccasions} value={brief.occasion} onPick={set("occasion")} />
-              </div>
-
-              {/* Context-aware What makes you special */}
-              <div className="space-y-2.5">
-                <div className="flex flex-wrap items-center justify-between gap-1.5">
-                  <span className="text-sm font-medium text-slate-700">What makes you special? (Select multiple or type)</span>
-                  <div className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-2.5 py-0.5 text-xs text-brand-800 ring-1 ring-brand-200">
-                    <span>{activeProfile.icon}</span>
-                    <span className="font-semibold">{activeProfile.label}</span>
-                    {biz?.name && <span className="text-slate-500 font-normal">matched for {biz.name}</span>}
-                  </div>
-                </div>
-
-                {/* Industry preset switcher */}
-                <div className="flex flex-wrap items-center gap-1.5 pb-1">
-                  <span className="text-[11px] font-medium text-slate-500">Keywords category:</span>
-                  {Object.entries(DOMAIN_PROFILES).map(([key, dom]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setUserSelectedDomain(key === activeDomainKey && userSelectedDomain ? null : key)}
-                      className={`rounded-full px-2 py-0.5 text-[11px] transition-colors ${focusCls} ${
-                        activeDomainKey === key
-                          ? "bg-brand-600 font-medium text-white shadow-sm ring-1 ring-brand-700"
-                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                      }`}
-                    >
-                      {dom.icon} {dom.label}
-                    </button>
-                  ))}
-                  {userSelectedDomain && (
-                    <button
-                      type="button"
-                      onClick={() => setUserSelectedDomain(null)}
-                      className="text-[11px] text-slate-500 underline hover:text-slate-800"
-                    >
-                      ↺ Auto-detect
-                    </button>
-                  )}
-                </div>
-
-                <input
-                  className={inputCls}
-                  value={brief.highlights ?? ""}
-                  onChange={(e) => set("highlights")(e.target.value)}
-                  placeholder={activeProfile.highlightsPlaceholder}
-                />
-                <Chips options={contextualHighlights} value={brief.highlights} onPick={set("highlights")} />
+                <input aria-label="What makes you special" className={inputCls} value={brief.highlights ?? ""} onChange={(e) => set("highlights")(e.target.value)} placeholder={activeProfile.highlightsPlaceholder} />
+                <ChipPicker label="Specialty ideas" options={contextualHighlights} value={brief.highlights} onPick={set("highlights")} />
               </div>
               <AttachFiles files={files} onChange={setFiles} />
-            </Card>
+            </section>
           )}
 
           {step === 2 && (
-            <Card className="space-y-4">
-              <StepTitle title={product ? `Who is ${product} for?` : "Who is this for?"} hint={`${biz?.name ?? "The shop"} already has a place. You can select multiple audiences, goals and tones to give the agent full context.`} />
+            <section className="lm-card space-y-6 rounded-3xl border bg-white p-5 sm:p-6">
+              <StepHead title={product ? `Who is ${product} for?` : "Who is it for?"} />
               <div className="space-y-2">
-                <Field label="Who is it for? (Select multiple or type)">
-                  <input className={inputCls} value={brief.audience ?? ""} onChange={(e) => set("audience")(e.target.value)}
-                    placeholder="e.g. college students, young professionals, brides & bridesmaids" />
-                </Field>
-                <Chips options={contextualAudiences} value={brief.audience} onPick={set("audience")} />
+                <span className="text-sm font-semibold text-slate-900">👥 Audience</span>
+                <input aria-label="Audience" className={inputCls} value={brief.audience ?? ""} onChange={(e) => set("audience")(e.target.value)} placeholder="Type, or tap below" />
+                <ChipPicker label="Audience ideas" options={contextualAudiences} value={brief.audience} onPick={set("audience")} />
               </div>
               <div className="space-y-2">
-                <Field label="What do you want to achieve? (Select multiple or type)">
-                  <input className={inputCls} value={brief.goal ?? ""} onChange={(e) => set("goal")(e.target.value)}
-                    placeholder="e.g. make people aware we exist, more walk-in visits" />
-                </Field>
-                <Chips options={GOALS} value={brief.goal} onPick={set("goal")} />
+                <span className="text-sm font-semibold text-slate-900">🎯 Goal</span>
+                <IconTiles label="Goal" value={brief.goal} onPick={set("goal")} options={GOALS.map((g) => ({ label: g, icon: GOAL_ICONS[g] ?? "🎯" }))} />
               </div>
               <div className="space-y-2">
-                <div className="mb-1 text-sm font-medium text-slate-700">Tone (Select multiple or custom)</div>
-                <input className={inputCls} value={brief.tone ?? ""} onChange={(e) => set("tone")(e.target.value)}
-                  placeholder="e.g. Fun & youthful, Warm & friendly" />
-                <Chips options={TONES} value={brief.tone} onPick={set("tone")} />
+                <span className="text-sm font-semibold text-slate-900">🗣️ Tone</span>
+                <IconTiles label="Tone" value={brief.tone} onPick={set("tone")} columns="grid-cols-2 sm:grid-cols-3"
+                  options={TONES.map((t) => ({ label: t, icon: TONE_ICONS[t] ?? "🙂" }))} />
               </div>
-              <Field label="Where? (area, city)">
-                <input className={inputCls} value={brief.region ?? ""} onChange={(e) => set("region")(e.target.value)}
-                  placeholder="e.g. Indiranagar, Bengaluru" />
-              </Field>
-              <details className="rounded-lg bg-slate-50 px-3 py-2">
-                <summary className="cursor-pointer text-sm font-medium text-slate-700">Add a note in your own words</summary>
+              <label className="block">
+                <span className="text-sm font-semibold text-slate-900">📍 Where</span>
+                <input className={`${inputCls} mt-1.5`} value={brief.region ?? ""} onChange={(e) => set("region")(e.target.value)} placeholder="e.g. Indiranagar, Bengaluru" />
+              </label>
+              <details className="rounded-2xl bg-[#fdf1e4] px-4 py-3 dark:bg-[#1c1917]">
+                <summary className={`cursor-pointer text-sm font-semibold text-slate-700 ${focusCls}`}>✍️ Add a note in your own words</summary>
                 <div className="mt-3 space-y-2">
                   <textarea className={inputCls} rows={3} value={message} onChange={(e) => setMessage(e.target.value)}
-                    aria-label="Anything else, in your own words"
-                    placeholder="We just opened, we want more people to know about us…" />
+                    aria-label="Anything else, in your own words" placeholder="We just opened, we want more people to know about us…" />
                   <VoiceButton onText={(t) => setMessage((m) => (m ? `${m} ${t}` : t))} />
-                  <AttachFiles files={files} onChange={setFiles} />
                 </div>
               </details>
-            </Card>
+            </section>
           )}
 
           {step === 3 && (
-            <Card className="space-y-5">
-              <StepTitle title="What should we create?"
-                hint={`${product || "This promotion"} for ${biz?.name ?? "your shop"}, in ${langList(languages) || "a language you choose"}.`} />
-              <div className="flex gap-2 text-sm">
-                <Toggle on={mode === "user"} onClick={() => setMode("user")}>I'll choose</Toggle>
-                <Toggle on={mode === "ai"} onClick={() => setMode("ai")}>Let the AI decide</Toggle>
+            <section className="lm-card space-y-6 rounded-3xl border bg-white p-5 sm:p-6">
+              <StepHead title="Where should it go?" />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ChoiceCard icon="👆" title="I'll choose" line="Pick the platforms and formats." on={mode === "user"} onClick={() => setMode("user")} />
+                <ChoiceCard icon="✨" title="Let the AI decide" line="Best mix for your goal." on={mode === "ai"} onClick={() => setMode("ai")} />
               </div>
               {mode === "user" && (
                 <>
                   <div className="flex flex-wrap gap-2">
                     {PRESETS.map((p) => (
                       <button key={p.label} type="button" onClick={() => setFormats(p.formats)}
-                        className={`rounded-full border border-slate-300 px-3 py-1 text-xs hover:bg-slate-50 ${focusCls}`}>{p.label}</button>
+                        className={`lm-glass inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium text-slate-800 hover:text-slate-900 ${focusCls}`}>
+                        <span className="flex items-center gap-0.5">{Object.keys(p.formats).map((pl) => <PlatformIcon key={pl} platform={pl} className="h-3.5 w-3.5 text-slate-900" />)}</span>
+                        {p.label}
+                      </button>
                     ))}
                   </div>
-                  <div className="grid gap-2">
-                    {PLATFORMS.map((p) => (
-                      <div key={p} className="flex flex-wrap items-center gap-2 text-sm">
-                        <span className="w-28 font-medium">{PLATFORM_LABELS[p] ?? p}</span>
-                        {FORMAT_CATALOG[p].map((f) => (
-                          <Toggle key={f} small on={(formats[p] ?? []).includes(f)} onClick={() => toggleFormat(p, f)}>
-                            {FORMAT_LABELS[f]}
-                          </Toggle>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
+                  <PlatformCards platforms={[...PLATFORMS]} catalog={FORMAT_CATALOG} formatLabels={FORMAT_LABELS} formats={formats} onChange={setFormats} />
                 </>
               )}
-
-              {/* Translation & Dialect Preference */}
-              <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
-                <div>
-                  <div className="text-sm font-semibold text-slate-900">Translation & Localization Style</div>
-                  <p className="text-xs text-slate-500">Choose whether translations should use conversational code-switching (Kanglish, Hinglish) or pure native script.</p>
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCodeSwitching(true);
-                      setCodeSwitchingStyle("kanglish_hinglish");
-                    }}
-                    className={`rounded-xl border p-3 text-left transition-colors ${focusCls} ${
-                      codeSwitching
-                        ? "border-brand-600 bg-brand-50/70 ring-1 ring-brand-600"
-                        : "border-slate-200 bg-white hover:bg-slate-50"
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
-                      <span>⚡</span> Kanglish / Hinglish / Tanglish
-                    </div>
-                    <p className="mt-1 text-xs text-slate-600">
-                      Conversational code-switching with natural English loanwords (e.g. <i>"Weekend alli best coffee ide"</i>, <i>"Super discount on all orders"</i>). Best for youth and social media.
-                    </p>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCodeSwitching(false);
-                      setCodeSwitchingStyle("native_pure");
-                    }}
-                    className={`rounded-xl border p-3 text-left transition-colors ${focusCls} ${
-                      !codeSwitching
-                        ? "border-brand-600 bg-brand-50/70 ring-1 ring-brand-600"
-                        : "border-slate-200 bg-white hover:bg-slate-50"
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
-                      <span>📖</span> Pure Native Script
-                    </div>
-                    <p className="mt-1 text-xs text-slate-600">
-                      Traditional, culturally authentic pure native language script without English loanwords or transliterations.
-                    </p>
-                  </button>
-                </div>
+              <div className="space-y-2">
+                <span className="text-sm font-semibold text-slate-900">💬 How regional languages read</span>
+                <StyleCards mixed={codeSwitching} onChange={(mixed) => { setCodeSwitching(mixed); setCodeSwitchingStyle(mixed ? "kanglish_hinglish" : "native_pure"); }} />
               </div>
-
-              <div>
-                <div className="mb-1 text-sm font-medium">Target Languages (Select all that apply)</div>
-                {languages.length === 0 && <p className="mb-1 text-xs text-amber-800">Choose at least one language.</p>}
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(LANGUAGES).map(([code, name]) => (
-                    <Toggle key={code} small on={languages.includes(code)}
-                      onClick={() => setLanguages(languages.includes(code) ? languages.filter((l) => l !== code) : [...languages, code])}>
-                      {name}
-                    </Toggle>
-                  ))}
-                </div>
+              <div className="space-y-2">
+                <span className="text-sm font-semibold text-slate-900">🌐 Languages {languages.length === 0 && <span className="font-normal text-amber-800">· pick at least one</span>}</span>
+                <LanguagePicker value={languages} onChange={setLanguages} />
               </div>
-            </Card>
+            </section>
           )}
 
           {step === 4 && (
-            <Card className="space-y-3">
-              <StepTitle title="Check this" hint="These are the facts the posts have to match." />
-              <div>
-                <p className="text-lg font-semibold">{product || "This promotion"} for {biz?.name}</p>
-                <p className="text-sm text-slate-600">{offerLine(brief)} · {brief.audience || "customers nearby"} · {langList(languages)}</p>
-              </div>
-              <dl className="grid grid-cols-1 gap-y-1 text-sm sm:grid-cols-[9rem_1fr]">
-                <Row k="Occasion" v={[brief.occasion, brief.event_date].filter(Boolean).join(" · ")} />
-                <Row k="What makes you special" v={brief.highlights} />
-                <Row k="Audience" v={brief.audience} />
-                <Row k="Goal" v={brief.goal} />
-                <Row k="Tone" v={brief.tone} />
-                <Row k="Where" v={brief.region} />
-                <Row k="Translation style" v={codeSwitching ? "Kanglish / Hinglish / Tanglish (Code-Switching)" : "Pure Native Script (Kannada / Hindi / Tamil)"} />
-                <Row k="Languages" v={langList(languages)} />
-                <Row k="Notes" v={message} />
-                <Row k="Attached" v={files.map((f) => f.filename).join(", ")} />
-                <Row k="Formats" v={mode === "ai" ? "AI decides" : Object.entries(chosen).map(([p, f]) => `${cap(p)}: ${f.map((x) => FORMAT_LABELS[x]).join(", ")}`).join(" · ")} />
-              </dl>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={skipReview} onChange={(e) => setSkipReview(e.target.checked)} />
-                Go straight to creatives (skip the plan review)
-              </label>
-              <ErrorNote error={error} />
-            </Card>
+            <Ticket
+              shop={biz?.name ?? ""}
+              offer={brief.offer?.trim() ? displayOffer(brief.offer) : "No deal"}
+              product={product || "This promotion"}
+              aiPicks={mode === "ai"}
+              platforms={chosenPlatforms}
+              languages={languages}
+              formatCount={formatCount}
+              chips={[
+                { icon: "📅", label: "When", value: when },
+                { icon: "👥", label: "For", value: brief.audience },
+                { icon: "🎯", label: "Goal", value: brief.goal },
+                { icon: "🗣️", label: "Tone", value: brief.tone },
+                { icon: "✨", label: "Special", value: brief.highlights },
+                { icon: "📍", label: "Where", value: brief.region },
+                { icon: "💬", label: "Style", value: codeSwitching ? "Everyday mix" : "Pure script" },
+                { icon: "📎", label: "Files", value: files.length ? `${files.length} attached` : "" },
+                { icon: "✍️", label: "Note", value: message.trim() ? (message.length > 40 ? `${message.slice(0, 40)}…` : message) : "" },
+              ]}
+              footer={(
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <button type="button" role="switch" aria-checked={skipReview} onClick={() => setSkipReview(!skipReview)}
+                    className={`flex items-center gap-2.5 rounded-xl text-sm text-slate-700 ${focusCls}`}>
+                    <span aria-hidden="true" className={`relative h-6 w-10 rounded-full transition-colors ${skipReview ? "bg-brand-700" : "bg-[#e7d8c6] dark:bg-[#292524]"}`}>
+                      <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${skipReview ? "left-[1.1rem]" : "left-0.5"}`} />
+                    </span>
+                    Skip the plan review
+                  </button>
+                  <ErrorNote error={error} />
+                </div>
+              )}
+            />
           )}
 
-          <div className="flex justify-between">
-            <Button kind="ghost" disabled={step === 0} onClick={() => setStep(step - 1)}>Back</Button>
-            {step < STEPS.length - 1
-              ? <Button disabled={!canNext} onClick={() => setStep(step + 1)}>{nextLabel}</Button>
-              : <Button disabled={busy || !businessId || (!named && !allowBlank)} onClick={submit}>{busy ? "Starting…" : `Generate for ${biz?.name ?? "this shop"}`}</Button>}
-          </div>
+          {step > 0 && (
+            <div className="flex justify-between gap-2">
+              <Button kind="ghost" onClick={() => setStep(step - 1)}>Back</Button>
+              {step < STEPS.length - 1
+                ? <Button disabled={!canNext} onClick={() => setStep(step + 1)}>{nextLabel} →</Button>
+                : <Button disabled={busy || !businessId || (!named && !allowBlank)} onClick={submit}>{busy ? "Starting…" : `✨ Generate for ${biz?.name ?? "this shop"}`}</Button>}
+            </div>
+          )}
         </div>
 
         {step > 0 && (
-          <Card className="space-y-2 lg:sticky lg:top-4">
-            <h2 className="text-sm font-semibold">So far</h2>
-            <Fact k="Shop" v={biz?.name ?? "Not chosen yet"} />
-            <Fact k="Promoting" v={product || "Not named yet"} />
-            <Fact k="Deal" v={offerLine(brief)} />
-            <Fact k="For" v={brief.audience || "Not chosen yet"} />
-            <Fact k="Specialty" v={brief.highlights || "Not set yet"} />
-            <Fact k="Occasion" v={brief.occasion || "Not set yet"} />
-            <Fact k="Where" v={brief.region || "Not set yet"} />
-            <Fact k="Dialect" v={codeSwitching ? "Kanglish / Hinglish" : "Pure Native"} />
-            <Fact k="Files" v={files.length ? files.map((f) => f.filename).join(", ") : "None attached"} />
-            <Fact k="In" v={langList(languages) || "No language yet"} />
-            <Fact k="On" v={mode === "ai" ? "AI will choose" : Object.keys(chosen).map(cap).join(", ") || "Not chosen yet"} />
-          </Card>
+          <LivePoster
+            shop={biz?.name ?? ""}
+            product={product}
+            offer={brief.offer?.trim() ? displayOffer(brief.offer) : undefined}
+            when={when || undefined}
+            audience={brief.audience}
+            special={brief.highlights}
+            platforms={chosenPlatforms}
+            aiPicks={mode === "ai"}
+            languages={languages}
+            filled={filled}
+            total={details.length}
+          />
         )}
       </div>
+      )}
     </div>
   );
 }
 
-function Fact({ k, v }: { k: string; v: string }) {
+function fmtDate(iso: string) {
+  const at = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(at.getTime())) return iso;
+  return new Intl.DateTimeFormat("en-IN", { weekday: "short", day: "numeric", month: "short" }).format(at);
+}
+
+function StepHead({ title, tip }: { title: string; tip?: string }) {
   return (
-    <div>
-      <div className="text-xs text-slate-600">{k}</div>
-      <div className="text-sm text-slate-900">{v}</div>
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h2 className="font-display text-3xl leading-tight text-slate-900">{title}</h2>
+      {tip && <InfoTip label="Locked facts">{tip}</InfoTip>}
     </div>
   );
-}
-
-function StepTitle({ title, hint }: { title: string; hint: string }) {
-  return <div><h2 className="text-lg font-semibold">{title}</h2><p className="text-sm text-slate-500">{hint}</p></div>;
-}
-
-function Chips({ options, value, onPick }: { options: string[]; value?: string; onPick: (v: string) => void }) {
-  const selected = (value || "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  function toggle(o: string) {
-    const isSel = selected.includes(o);
-    const next = isSel ? selected.filter((s) => s !== o) : [...selected, o];
-    onPick(next.join(", "));
-  }
-
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {options.map((o) => {
-        const isSel = selected.includes(o);
-        return (
-          <button
-            key={o}
-            type="button"
-            onClick={() => toggle(o)}
-            className={`rounded-full px-2.5 py-1 text-xs transition-colors ${focusCls} ${
-              isSel
-                ? "bg-brand-600 font-semibold text-white shadow-sm ring-1 ring-brand-700"
-                : idleCls
-            }`}
-          >
-            {isSel ? `✓ ${o}` : `+ ${o}`}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function Toggle({ on, onClick, children, small }: { on: boolean; onClick: () => void; children: ReactNode; small?: boolean }) {
-  return (
-    <button type="button" onClick={onClick}
-      className={`rounded-lg ${focusCls} ${small ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm"} ${on ? selectedCls : idleCls}`}>
-      {children}
-    </button>
-  );
-}
-
-function Row({ k, v }: { k: string; v?: string | null }) {
-  if (!v) return null;
-  return <><dt className="text-slate-600">{k}</dt><dd>{v}</dd></>;
 }
 
 const FILE_ROLE: Record<OwnerFile["kind"], string> = {
@@ -909,12 +830,11 @@ function AttachFiles({ files, onChange }: { files: OwnerFile[]; onChange: (files
 
   return (
     <div className="space-y-2">
-      <div className="text-sm font-medium text-slate-700">Attach a file</div>
-      <p className="text-xs text-slate-500">A logo, sample poster, photo, text note, voice recording, or any other file.</p>
       <input ref={input} type="file" multiple className="hidden" onChange={(e) => add(e.target.files)} />
-      <Button kind="ghost" small disabled={busy || files.length >= 8} onClick={() => input.current?.click()}>
-        {busy ? "Attaching…" : "Attach file"}
-      </Button>
+      <button type="button" disabled={busy || files.length >= 8} onClick={() => input.current?.click()}
+        className={`flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[#e7d8c6] px-4 py-3 text-sm font-medium text-slate-600 hover:border-brand-300 hover:text-slate-900 disabled:opacity-60 dark:border-[#292524] ${focusCls}`}>
+        <span aria-hidden="true">📎</span>{busy ? "Attaching…" : "Attach a logo, photo or note"}
+      </button>
       {error && <p className="text-xs text-red-700">{error}</p>}
       {files.length > 0 && (
         <ul className="space-y-2">

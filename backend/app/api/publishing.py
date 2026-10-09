@@ -59,6 +59,7 @@ async def publish(campaign_id: str, body: PublishIn, background: BackgroundTasks
         pairs = [(a, acct, _aware(body.scheduled_at)) for a in assets for acct in accounts
                  if account_targets(acct) == a.platform and (not body.platforms or a.platform in body.platforms)]
     pairs = [p for p in pairs if not (p[0].platform == "whatsapp" and p[0].format == "offer_card")]
+    pairs = [p for p in pairs if not (p[0].platform == "youtube" and p[0].kind != "video")]
     if not pairs:
         raise HTTPException(400, "Nothing to publish: connect an account for at least one approved platform")
 

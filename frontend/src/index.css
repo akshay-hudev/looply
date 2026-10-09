@@ -67,3 +67,79 @@ body {
 .dark .shadow-sm { box-shadow: none; }
 .dark .placeholder\:text-slate-500::placeholder { color: #a3a3a3; }
 .dark .focus-visible\:outline-brand-700:focus-visible { outline-color: #fb923c; }
+
+/* ---------- LOOPLY warm festive surfaces ---------- */
+.lm-page {
+  background-color: #fff8ef;
+  background-image: radial-gradient(rgba(194, 65, 12, 0.07) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.dark .lm-page {
+  background-color: #0c0a09;
+  background-image: radial-gradient(rgba(251, 146, 60, 0.06) 1px, transparent 1px);
+}
+
+.lm-card {
+  border-color: #f1e3d1;
+  box-shadow: 0 1px 2px rgba(124, 45, 18, 0.06), 0 10px 28px -16px rgba(124, 45, 18, 0.18);
+}
+.dark .lm-card { border-color: #292524; box-shadow: none; }
+
+.lm-glass {
+  background-color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(124, 45, 18, 0.1);
+  backdrop-filter: blur(10px);
+}
+.dark .lm-glass { background-color: rgba(28, 25, 23, 0.6); border-color: rgba(251, 146, 60, 0.14); }
+
+.lm-gradient-text {
+  background-image: linear-gradient(90deg, #c2410c 0%, #db2777 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.dark .lm-gradient-text { background-image: linear-gradient(90deg, #fb923c 0%, #f472b6 100%); }
+
+.lm-cta {
+  background-image: linear-gradient(100deg, #c2410c 0%, #be185d 100%);
+  box-shadow: 0 4px 12px rgba(190, 24, 93, 0.22);
+  transition: box-shadow 300ms ease, transform 300ms ease;
+}
+.lm-cta:hover { box-shadow: 0 6px 16px rgba(190, 24, 93, 0.32); transform: translateY(-1px); }
+.lm-cta:disabled { background-image: none; box-shadow: none; transform: none; }
+
+/* Drifting aurora behind banners. */
+.lm-aurora { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.lm-aurora > span {
+  position: absolute; border-radius: 9999px; filter: blur(56px); opacity: 0.55;
+  animation: lm-drift 18s ease-in-out infinite alternate;
+}
+.dark .lm-aurora > span { opacity: 0.22; }
+@keyframes lm-drift {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(7%, -9%, 0) scale(1.12); }
+  100% { transform: translate3d(-6%, 7%, 0) scale(0.94); }
+}
+
+/* A light that travels around a card's border (after 21st.dev Border Beam). */
+.lm-beam { position: relative; isolation: isolate; overflow: hidden; padding: 2px; background-color: #f1e3d1; }
+.dark .lm-beam { background-color: #292524; }
+.lm-beam::before {
+  content: ""; position: absolute; inset: -160%; z-index: -1;
+  background: conic-gradient(from 0deg, transparent 0deg 280deg, #f97316 315deg, #ec4899 345deg, transparent 360deg);
+  animation: lm-spin 5s linear infinite;
+}
+@keyframes lm-spin { to { transform: rotate(1turn); } }
+
+/* Light flowing along an SVG path; the path needs pathLength="1". */
+.lm-flow { stroke-dasharray: 0.16 1; animation: lm-flow 2.8s linear infinite; }
+@keyframes lm-flow { from { stroke-dashoffset: 1.16; } to { stroke-dashoffset: 0; } }
+
+@keyframes lm-pulse-ring { 0% { transform: scale(1); opacity: 0.55; } 100% { transform: scale(1.9); opacity: 0; } }
+.lm-pulse-ring { animation: lm-pulse-ring 1.8s ease-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lm-aurora > span, .lm-beam::before, .lm-flow, .lm-pulse-ring { animation: none !important; }
+  .lm-flow { stroke-dasharray: none; opacity: 0.35; }
+  .lm-cta, .lm-cta:hover { transition: none; transform: none; }
+}

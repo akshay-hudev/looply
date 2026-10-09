@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from app.core.tenancy import OrgContext, get_org_context
 from app.services import speech_service
+from app.services.speech_brief import SpeechBrief, parse_speech
 
 router = APIRouter(prefix="/voice", tags=["voice"])
 MAX_AUDIO = 25 * 1024 * 1024
@@ -22,6 +23,17 @@ async def transcribe(file: UploadFile = File(...), language: str | None = Form(N
                                                file.content_type or "audio/webm", language)
     except speech_service.SpeechUnavailable as e:
         raise HTTPException(503, str(e)) from e
+
+
+class BriefIn(BaseModel):
+    transcript: str = Field(min_length=1, max_length=4000)
+    shop_region: str | None = None
+
+
+@router.post("/brief", response_model=SpeechBrief)
+def brief_from_speech(body: BriefIn, ctx: OrgContext = Depends(get_org_context)):
+    """Map one spoken campaign onto the form. Words that were not said stay empty."""
+    return parse_speech(body.transcript, body.shop_region)
 
 
 class SpeakIn(BaseModel):

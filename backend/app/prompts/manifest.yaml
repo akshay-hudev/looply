@@ -137,6 +137,14 @@ agents:
         sections: [identity]
         exclude: ["podcast", "SEO", "blog"]
 
+  platform_youtube:
+    contract: platform_youtube
+    personas:
+      - file: marketing-short-video-editing-coach.md
+        focus: vertical YouTube Shorts and titles for a local business.
+        sections: [identity, core mission, critical rules, communication style]
+        exclude: ["podcast", "SEO", "blog"]
+
   language_culture:
     contract: language_culture
     personas:

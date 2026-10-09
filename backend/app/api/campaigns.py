@@ -6,7 +6,7 @@ from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents import campaign_manager, change_agent
@@ -17,7 +17,10 @@ from app.core.security import decode_access_token
 from app.core.tenancy import OrgContext, get_org_context, get_owned
 from app.graph.context import PipelineContext
 from app.graph.state import FORMAT_CATALOG, CampaignBrain, CampaignBrief, OfferFacts, OwnerFile
-from app.models import AgentEvent, Asset, Business, Campaign, CampaignVersion, Membership, PublishJob
+from app.models import (
+    AgentEvent, AnalyticsSnapshot, Asset, AssetDependency, Business, Campaign, CampaignVersion,
+    Membership, PublishJob, WhatsAppTemplate,
+)
 from app.services import speech_service
 from app.services.jobs import dispatch
 from app.services.media_service import MediaService
@@ -365,6 +368,26 @@ def get_campaign(campaign_id: str, ctx: OrgContext = Depends(get_org_context)):
     return campaign_out(c, _assets(ctx, c.id))
 
 
+@router.delete("/{campaign_id}", status_code=204)
+def delete_campaign(campaign_id: str, ctx: OrgContext = Depends(get_org_context)):
+    """Remove a campaign and the posts, jobs, and notes that belong to it."""
+    c = get_owned(ctx, Campaign, campaign_id)
+    asset_ids = list(ctx.db.scalars(select(Asset.id).where(Asset.campaign_id == c.id)))
+    if asset_ids:
+        ctx.db.execute(update(WhatsAppTemplate).where(WhatsAppTemplate.asset_id.in_(asset_ids)).values(asset_id=None))
+    ctx.db.execute(delete(AnalyticsSnapshot).where(AnalyticsSnapshot.campaign_id == c.id))
+    ctx.db.execute(delete(PublishJob).where(PublishJob.campaign_id == c.id))
+    ctx.db.execute(delete(AssetDependency).where(AssetDependency.campaign_id == c.id))
+    ctx.db.execute(delete(Asset).where(Asset.campaign_id == c.id))
+    ctx.db.execute(delete(AgentEvent).where(AgentEvent.campaign_id == c.id))
+    ctx.db.execute(delete(CampaignVersion).where(CampaignVersion.campaign_id == c.id))
+    business = ctx.db.get(Business, c.business_id)
+    if business and business.learnings:
+        business.learnings = [row for row in business.learnings if row.get("campaign_id") != c.id]
+    ctx.db.delete(c)
+    ctx.db.commit()
+
+
 @router.post("/{campaign_id}/messages")
 async def send_message(campaign_id: str, body: MessageIn, background: BackgroundTasks,
                        ctx: OrgContext = Depends(get_org_context)):
@@ -428,7 +451,7 @@ async def update_strategy(campaign_id: str, body: StrategyPatch, background: Bac
 @router.post("/{campaign_id}/strategy/accept")
 async def accept_strategy(campaign_id: str, background: BackgroundTasks, ctx: OrgContext = Depends(get_org_context)):
     c = get_owned(ctx, Campaign, campaign_id)
-    if c.status != "strategy_review":
+    if c.status not in ("strategy_review", "failed"):
         raise HTTPException(409, f"Campaign is '{c.status}', not awaiting strategy review")
     pctx = PipelineContext(db=ctx.db, campaign=c)
     brain = pctx.brain()

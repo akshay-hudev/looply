@@ -22,6 +22,8 @@ META_SCOPES = {
 }
 LINKEDIN_SCOPES = ["openid", "profile", "w_member_social", "w_organization_social", "r_organization_social",
                    "rw_organization_admin"]
+YOUTUBE_SCOPES = ["https://www.googleapis.com/auth/youtube.upload",
+                  "https://www.googleapis.com/auth/youtube.readonly"]
 
 
 def redirect_uri(platform: str) -> str:
@@ -57,6 +59,13 @@ def authorize_url(platform: str, state: str) -> str:
         q = {"response_type": "code", "client_id": s.linkedin_client_id, "redirect_uri": redirect_uri(platform),
              "state": state, "scope": " ".join(LINKEDIN_SCOPES)}
         return f"https://www.linkedin.com/oauth/v2/authorization?{urlencode(q)}"
+    if platform == "youtube":
+        if not s.youtube_client_id:
+            raise AdapterError("YOUTUBE_CLIENT_ID is not configured")
+        q = {"client_id": s.youtube_client_id, "redirect_uri": redirect_uri(platform), "response_type": "code",
+             "scope": " ".join(YOUTUBE_SCOPES), "access_type": "offline", "prompt": "consent",
+             "include_granted_scopes": "true", "state": state}
+        return f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(q)}"
     raise AdapterError(f"Unsupported platform {platform}")
 
 
@@ -87,6 +96,21 @@ async def connect_with_token(db: Session, platform: str, token: str, external_id
         external_id = external_id or f"urn:li:person:{me['sub']}"
         name = display_name or me.get("name") or "LinkedIn"
         meta = {"urn": external_id, "kind": "organization" if "organization" in external_id else "member"}
+    elif platform == "youtube":
+        async with httpx.AsyncClient(timeout=30) as c:
+            data = raise_for(await c.get("https://www.googleapis.com/youtube/v3/channels",
+                                         params={"part": "snippet", "mine": "true"},
+                                         headers={"Authorization": f"Bearer {token}"}), "youtube")
+        items = data.get("items") or []
+        chosen = next((i for i in items if i.get("id") == external_id), None)
+        if chosen is None and not external_id and items:
+            chosen = items[0]
+        if chosen is None:
+            raise AdapterError("This token cannot access that YouTube channel. Create a channel on the Google "
+                               "account, or paste the channel id that belongs to the token.")
+        external_id = chosen["id"]
+        name = display_name or (chosen.get("snippet") or {}).get("title") or "YouTube"
+        meta = {"kind": "channel"}
     else:
         raise AdapterError(f"Unsupported platform {platform}")
     account = _upsert(db, org_id, business_id, platform, external_id, display_name=name,
@@ -216,5 +240,32 @@ async def complete_linkedin(db: Session, code: str, org_id: str, business_id: st
         if urn:
             accounts.append(_upsert(db, org_id, business_id, "linkedin", urn, display_name=f"Page {urn.split(':')[-1]}",
                                     meta={"urn": urn, "kind": "organization"}, **common))
+    db.commit()
+    return accounts
+
+
+async def complete_youtube(db: Session, code: str, org_id: str, business_id: str | None) -> list[SocialAccount]:
+    s = get_settings()
+    async with httpx.AsyncClient(timeout=30) as c:
+        tok = raise_for(await c.post("https://oauth2.googleapis.com/token", data={
+            "grant_type": "authorization_code", "code": code, "redirect_uri": redirect_uri("youtube"),
+            "client_id": s.youtube_client_id, "client_secret": s.youtube_client_secret}), "youtube")
+        token = tok["access_token"]
+        channels = raise_for(await c.get("https://www.googleapis.com/youtube/v3/channels",
+                                         params={"part": "snippet", "mine": "true"},
+                                         headers={"Authorization": f"Bearer {token}"}), "youtube")
+    items = channels.get("items") or []
+    if not items:
+        raise AdapterError("This Google account has no YouTube channel. Create a channel, then connect again.")
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(tok.get("expires_in", 3600)))
+    fields = dict(access_token_enc=encrypt(token), expires_at=expires_at, scopes=tok.get("scope", ""))
+    if tok.get("refresh_token"):
+        fields["refresh_token_enc"] = encrypt(tok["refresh_token"])
+    accounts = []
+    for ch in items:
+        snippet = ch.get("snippet") or {}
+        accounts.append(_upsert(db, org_id, business_id, "youtube", ch["id"],
+                                display_name=snippet.get("title") or "YouTube",
+                                meta={"kind": "channel", "custom_url": snippet.get("customUrl")}, **fields))
     db.commit()
     return accounts

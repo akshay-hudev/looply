@@ -7,7 +7,8 @@ def get_adapter(platform: str) -> PublishAdapter:
     from app.integrations.linkedin.adapter import LinkedInAdapter
     from app.integrations.mock.adapter import MockAdapter
     from app.integrations.whatsapp.adapter import WhatsAppAdapter
+    from app.integrations.youtube.adapter import YouTubeAdapter
 
     adapters = {"instagram": InstagramAdapter, "facebook": FacebookAdapter, "whatsapp": WhatsAppAdapter,
-                "linkedin": LinkedInAdapter, "mock": MockAdapter}
+                "linkedin": LinkedInAdapter, "youtube": YouTubeAdapter, "mock": MockAdapter}
     return adapters[platform]()

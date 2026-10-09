@@ -1,5 +1,10 @@
-"""Visual Content Agent: Agnes Image 2.5 Flash posters, story cards, offer cards, carousel covers."""
+"""Visual Content Agent: posters, story cards, offer cards and carousels.
 
+With ANTHROPIC_API_KEY set, Claude designs each creative as SVG and it is rendered to PNG for publishing.
+Otherwise Agnes Image 2.5 Flash draws it. Either way the built-in composed poster is the fallback.
+"""
+
+import asyncio
 import logging
 
 from pydantic import BaseModel
@@ -9,7 +14,8 @@ from app.agents.copy import asset_text
 from app.graph.context import PipelineContext
 from app.graph.state import language_name
 from app.models import Asset
-from app.services.creative_renderer import CreativeCopy, compose_image
+from app.services.claude_designer import ClaudeDesigner, DesignError, data_uri, get_designer, image_block, rasterize
+from app.services.creative_renderer import SIZES as CANVAS, CreativeCopy, compose_image, palette_for
 from app.services.media_service import MediaService
 log = logging.getLogger(__name__)
 
@@ -75,9 +81,72 @@ async def _render(ctx: PipelineContext, media: MediaService, asset: Asset, promp
     return await media.store_from_url(result.url, org_id=asset.org_id, default_ext="png"), result.provider
 
 
+def design_brief(asset: Asset, brain, cover: CreativeCopy) -> dict:
+    """What Claude needs to design one creative: the copy, the locked facts and the brand."""
+    c = asset.content or {}
+    p = palette_for(cover.category, cover.brand, cover.headline)
+    return {
+        "platform": asset.platform, "format": asset.format,
+        "language": {"code": asset.language, "name": language_name(asset.language)},
+        "brand": {"name": brain.business.name, "category": brain.business.category,
+                  "voice": brain.business.brand_voice, "palette_hint": [p.bg1, p.bg2, p.accent, p.soft]},
+        "headline": cover.headline, "support_line": cover.support, "body": c.get("body"),
+        "call_to_action": cover.cta,
+        "locked_facts": {"discount": cover.discount, "price": cover.price, "when": cover.when, "place": cover.place},
+        "tone": brain.strategy.tone, "audience": brain.strategy.primary_audience,
+        "owner_correction_notes": c.get("user_correction"),
+    }
+
+
+async def generate_with_claude(ctx: PipelineContext, asset: Asset, designer: ClaudeDesigner, media: MediaService) -> None:
+    """Claude designs the creative as SVG; we keep the SVG and publish a PNG rendered from it."""
+    brain = ctx.brain()
+    media_dir = ctx.settings.local_media_dir
+    slides = carousel_slides(asset, brain) if asset.format == "carousel" else []
+    cover = creative_copy(asset, brain, slide_label=f"1/{len(slides)}" if slides else "")
+    width, height = CANVAS.get(asset.format, (1080, 1080))
+    files = owner_images(brain)
+    references = [b for b in (image_block(f["url"], media_dir) for f in files if f["role"] != "logo") if b][:3]
+    logo = next((f["url"] for f in files if f["role"] == "logo"), None)
+    try:
+        svgs = await designer.poster(design_brief(asset, brain, cover), width=width, height=height, slides=slides or None,
+                                     references=references, logo_uri=data_uri(logo, media_dir) if logo else None)
+        pngs = await asyncio.gather(*(asyncio.to_thread(rasterize, svg, width, height) for svg in svgs))
+    except DesignError as e:
+        log.warning("claude could not design asset %s, using the composed poster: %s", asset.id, e)
+        svg = compose_image(asset.format, cover)
+        asset.media_url = media.put(svg.encode("utf-8"), org_id=asset.org_id, ext="svg")
+        asset.media_status = "ready"
+        asset.content = {**(asset.content or {}), "media_source": "composed",
+                         "media_note": "Claude couldn't design this one, so LOOPLY composed it from your copy."}
+        return
+    svg_urls = [media.put(svg.encode("utf-8"), org_id=asset.org_id, ext="svg") for svg in svgs]
+    png_urls = [media.put(png, org_id=asset.org_id, ext="png") for png in pngs]
+    asset.media_prompt = None
+    asset.media_url = png_urls[0]
+    asset.media_status = "ready"
+    content = {k: v for k, v in (asset.content or {}).items() if k not in ("media_error", "media_note")}
+    content.update({"media_source": "claude", "design_model": designer.model, "svg_url": svg_urls[0]})
+    if slides:
+        content.update({"slide_urls": png_urls, "slide_svg_urls": svg_urls})
+    asset.content = content
+
+
 async def generate(ctx: PipelineContext, asset: Asset, media: MediaService | None = None) -> Asset:
     brain = ctx.brain()
     media = media or MediaService(ctx.settings)
+    designer = get_designer(ctx.settings)
+    if designer is not None:
+        asset.media_status = "processing"
+        ctx.db.commit()
+        try:
+            await generate_with_claude(ctx, asset, designer, media)
+        except Exception as e:  # media failure must not sink the campaign; it is shown on the asset
+            log.exception("claude design failed for asset %s", asset.id)
+            asset.media_status = "failed"
+            asset.content = {**(asset.content or {}), "media_error": str(e)[:500]}
+        ctx.db.commit()
+        return asset
     asset.media_status = "processing"
     ctx.db.commit()
     try:

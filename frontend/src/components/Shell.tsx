@@ -13,7 +13,7 @@ export default function Shell() {
 
   return (
     <div className="min-h-screen">
-      <header className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-slate-200 bg-white px-6 py-3">
+      <header className="lm-glass sticky top-0 z-40 flex flex-wrap items-center gap-x-6 gap-y-2 border-x-0 border-t-0 px-6 py-3">
         <Link to="/" className={`flex items-center gap-2.5 leading-tight ${focusCls}`}>
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 shadow-xs">
             <svg className="h-5 w-5" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -29,14 +29,14 @@ export default function Shell() {
             </svg>
           </div>
           <div>
-            <span className="block text-lg font-bold tracking-tight text-slate-900">LOOPLY</span>
+            <span className="block font-display text-2xl leading-none tracking-tight text-slate-900">LOOPLY</span>
             <span className="block text-xs font-medium text-slate-500">Your Intent, Amplified</span>
           </div>
         </Link>
-        <nav className="flex gap-4 text-sm">
-          <NavLink to="/" end className={({ isActive }) => `py-2 ${focusCls} ${isActive ? "font-semibold text-brand-700" : "text-slate-600"}`}>Home</NavLink>
-          <NavLink to="/campaigns" className={({ isActive }) => `py-2 ${focusCls} ${isActive ? "font-semibold text-brand-700" : "text-slate-600"}`}>Campaigns</NavLink>
-          <NavLink to="/accounts" className={({ isActive }) => `py-2 ${focusCls} ${isActive ? "font-semibold text-brand-700" : "text-slate-600"}`}>Accounts</NavLink>
+        <nav className="flex gap-1 text-sm">
+          <NavLink to="/" end className={({ isActive }) => `rounded-full px-3.5 py-1.5 transition-colors ${focusCls} ${isActive ? "bg-brand-50 font-semibold text-brand-700" : "text-slate-600 hover:text-slate-900"}`}>Home</NavLink>
+          <NavLink to="/campaigns" className={({ isActive }) => `rounded-full px-3.5 py-1.5 transition-colors ${focusCls} ${isActive ? "bg-brand-50 font-semibold text-brand-700" : "text-slate-600 hover:text-slate-900"}`}>Campaigns</NavLink>
+          <NavLink to="/accounts" className={({ isActive }) => `rounded-full px-3.5 py-1.5 transition-colors ${focusCls} ${isActive ? "bg-brand-50 font-semibold text-brand-700" : "text-slate-600 hover:text-slate-900"}`}>Accounts</NavLink>
         </nav>
         <div className="ml-auto flex flex-wrap items-center gap-3 text-sm">
           <ThemeToggle />
@@ -50,7 +50,7 @@ export default function Shell() {
           <button className={`py-2 text-slate-600 underline ${focusCls}`} onClick={() => { auth.clear(); nav("/login"); }}>Log out</button>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-6 py-6"><Outlet /></main>
+      <main className="mx-auto max-w-6xl px-6 py-8"><Outlet /></main>
     </div>
   );
 }

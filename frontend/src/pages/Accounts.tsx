@@ -10,15 +10,6 @@ type Platform = (typeof PLATFORMS)[number];
 type Method = "login" | "token" | "simulated";
 type Providers = Record<Platform, { login: boolean; via: string }>;
 
-const OFFICIAL_LOGIN_URLS: Record<Platform, string> = {
-  instagram: "https://www.instagram.com/accounts/login/",
-  facebook: "https://www.facebook.com/login.php",
-  whatsapp: "https://web.whatsapp.com/",
-  linkedin: "https://www.linkedin.com/login",
-  youtube: "https://www.youtube.com/account",
-  x: "https://x.com/i/flow/login",
-};
-
 const META: Record<Platform, { label: string; icon: string; color: string; needs: string; idLabel: string; idHelp: string }> = {
   instagram: {
     label: "Instagram", icon: "📸", color: "from-pink-500 to-orange-400",
@@ -41,8 +32,8 @@ const META: Record<Platform, { label: string; icon: string; color: string; needs
   },
   youtube: {
     label: "YouTube", icon: "▶️", color: "from-red-600 to-red-400",
-    needs: "A YouTube channel. A simulated account lets you try the same picture and caption here.",
-    idLabel: "Channel id", idHelp: "YouTube Studio → Settings → Channel → Advanced settings.",
+    needs: "A YouTube channel on the Google account you sign in with. Publishing uploads a video (a Short).",
+    idLabel: "Channel id", idHelp: "YouTube Studio → Settings → Channel → Advanced settings. It starts with UC.",
   },
   x: {
     label: "X", icon: "𝕏", color: "from-slate-800 to-slate-600",
@@ -107,25 +98,33 @@ export default function Accounts() {
     setStep(1);
   }
 
+  function consentName(p: Platform = platform) {
+    if (p === "youtube") return "Google";
+    return providers.data?.[p]?.via ?? META[p].label;
+  }
+
+  async function startOAuth(p: Platform) {
+    setPlatform(p);
+    setMethod("login");
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await api.post<{ authorize_url: string }>(`/social/${p}/connect`, { business_id: biz || null });
+      if (!res.authorize_url) throw new Error(`${META[p].label} sign-in is not available.`);
+      window.location.assign(res.authorize_url);
+    } catch (e) {
+      setError(e);
+      setStep(2);
+      setBusy(false);
+    }
+  }
+
   async function go() {
     setError(null);
     setBusy(true);
     try {
       if (method === "login") {
-        try {
-          const res = await api.post<{ authorize_url: string }>(`/social/${platform}/connect`, { business_id: biz || null });
-          if (res.authorize_url) {
-            window.location.href = res.authorize_url;
-            return;
-          }
-        } catch {
-          // If server OAuth credentials are not fully configured, redirect directly to official platform login page!
-          await api.post("/social/mock/connect", { target_platform: platform, business_id: biz || null });
-          qc.invalidateQueries({ queryKey: ["accounts"] });
-          window.location.href = OFFICIAL_LOGIN_URLS[platform];
-          return;
-        }
-        window.location.href = OFFICIAL_LOGIN_URLS[platform];
+        await startOAuth(platform);
         return;
       }
       if (method === "token") {
@@ -167,16 +166,15 @@ export default function Accounts() {
                     {linked.length ? linked.map((a) => a.display_name).join(", ") : "Not connected"}
                   </span>
                 </span>
-                <a
-                  href={OFFICIAL_LOGIN_URLS[p]}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  title={`Open official ${META[p].label} login`}
-                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 shadow-sm hover:border-brand-400 hover:text-brand-600"
-                >
-                  Login ↗
-                </a>
+                {providers.data?.[p]?.login && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); void startOAuth(p); }}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 shadow-sm hover:border-brand-400 hover:text-brand-600"
+                  >
+                    Sign in
+                  </button>
+                )}
               </div>
               );
             })}
@@ -197,8 +195,10 @@ export default function Accounts() {
           <h2 className="text-lg font-semibold">How do you want to connect {m.label}?</h2>
           <p className="text-xs text-slate-500">Requirements: {m.needs}</p>
           <MethodOption on={method === "login"} onClick={() => setMethod("login")}
-            title={`Log in with ${via} (Redirects to official ${m.label} login)`}
-            text={`Redirects to ${via}'s official login page (${OFFICIAL_LOGIN_URLS[platform]}). You'll authenticate securely on their official portal without sharing passwords.`} />
+            title={`Sign in with ${consentName()}`}
+            text={platform === "youtube"
+              ? "Opens Google so you can allow this app to upload videos to your YouTube channel. Your password stays on Google."
+              : `Opens ${via} so you can allow this app to publish. Your password stays on ${via}.`} />
           <MethodOption on={method === "token"} onClick={() => setMethod("token")} title="Paste an access token"
             text={`For developers who already have an API token. We verify it with ${via} before saving.`} />
           <MethodOption on={method === "simulated"} onClick={() => setMethod("simulated")} title="Try it with a simulated account"
@@ -219,27 +219,21 @@ export default function Accounts() {
         <Card className="space-y-4">
           {method === "login" && (
             <>
-              <h2 className="text-lg font-semibold">Log in with {via}</h2>
+              <h2 className="text-lg font-semibold">Sign in with {consentName()}</h2>
               <p className="text-sm text-slate-600">
-                You will be redirected to {m.label}'s official login page: <code className="rounded bg-slate-100 px-1 text-xs text-slate-800">{OFFICIAL_LOGIN_URLS[platform]}</code>
+                {platform === "youtube"
+                  ? "You will go to Google, not to youtube.com. Approve access there, and Google sends you back here with the channel connected."
+                  : `You will go to ${via} to approve access, then come back here.`}
               </p>
               <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-700">
-                <li>Click the button below to redirect to {via}'s official login page.</li>
-                <li>Enter your {via} email/phone and password on their official page.</li>
-                <li>Authorize LOOPLY to post content to your {m.label} account.</li>
+                <li>Click the button below.</li>
+                <li>Sign in on {consentName()} if it asks.</li>
+                <li>Authorize LOOPLY to publish to your {m.label} account.</li>
               </ol>
               <div className="flex flex-wrap items-center gap-2 pt-2">
                 <Button onClick={go} disabled={busy}>
-                  {busy ? "Redirecting…" : `Log in & Redirect to ${via} →`}
+                  {busy ? "Redirecting…" : `Continue to ${consentName()} →`}
                 </Button>
-                <a
-                  href={OFFICIAL_LOGIN_URLS[platform]}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 ${focusCls}`}
-                >
-                  Open {m.label} login in new tab ↗
-                </a>
               </div>
             </>
           )}
@@ -318,14 +312,6 @@ export default function Accounts() {
               {a.kind === "user" && <div className="text-xs text-amber-800">This is a personal profile. Create a Facebook Page, then press Change and connect the Page.</div>}
             </div>
             <div className="flex shrink-0 gap-2">
-              <a
-                href={OFFICIAL_LOGIN_URLS[a.target_platform as Platform]}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
-              >
-                Open login ↗
-              </a>
               <Button small kind="ghost" disabled={busy} onClick={() => changeAccount(a)}>Change</Button>
               <Button small kind="danger" onClick={async () => {
                 const ok = window.confirm(`Disconnect ${a.display_name}? Future posts to this account will stop.`);

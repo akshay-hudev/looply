@@ -37,6 +37,16 @@ async def _refresh(account: SocialAccount) -> None:
             if "access_token" in data:
                 account.meta = {**account.meta, "user_token_enc": encrypt(data["access_token"])}
                 account.expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(data.get("expires_in", 5184000)))
+        elif account.platform == "youtube" and account.refresh_token_enc:
+            r = await c.post("https://oauth2.googleapis.com/token", data={
+                "grant_type": "refresh_token", "refresh_token": decrypt(account.refresh_token_enc),
+                "client_id": s.youtube_client_id, "client_secret": s.youtube_client_secret})
+            data = r.json()
+            if "access_token" in data:
+                account.access_token_enc = encrypt(data["access_token"])
+                if data.get("refresh_token"):
+                    account.refresh_token_enc = encrypt(data["refresh_token"])
+                account.expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(data.get("expires_in", 3600)))
         elif account.platform == "linkedin" and account.refresh_token_enc:
             r = await c.post("https://www.linkedin.com/oauth/v2/accessToken", data={
                 "grant_type": "refresh_token", "refresh_token": decrypt(account.refresh_token_enc),

@@ -1,6 +1,10 @@
-"""Speech-to-text (OpenAI Whisper-compatible or Bhashini for Indian languages) and optional text-to-speech."""
+"""Speech-to-text (local Whisper, OpenAI Whisper-compatible, or Bhashini) and optional text-to-speech."""
 
+import asyncio
 import base64
+import tempfile
+import threading
+from pathlib import Path
 
 import httpx
 
@@ -11,8 +15,70 @@ class SpeechUnavailable(Exception):
     pass
 
 
+_model = None
+_model_lock = threading.Lock()
+
+
+def _local_model():
+    """Load multilingual Whisper once. The transcript is not rewritten afterwards."""
+    global _model
+    with _model_lock:
+        if _model is None:
+            try:
+                from faster_whisper import WhisperModel
+            except ImportError as e:
+                raise SpeechUnavailable("Local speech is not installed") from e
+            s = get_settings()
+            _model = WhisperModel(s.stt_local_model, device=s.stt_local_device, compute_type=s.stt_local_compute_type)
+        return _model
+
+
+def _load_audio(path: str):
+    """Decode a browser recording to 16 kHz mono. PyAV 19 has no metadata_errors argument."""
+    import av
+    import numpy as np
+
+    resampler = av.audio.resampler.AudioResampler(format="s16", layout="mono", rate=16000)
+    chunks = []
+    try:
+        with av.open(path, mode="r") as container:
+            for frame in container.decode(audio=0):
+                frame.pts = None
+                chunks.extend(resampler.resample(frame))
+            chunks.extend(resampler.resample(None))
+    except av.error.FFmpegError as e:
+        raise SpeechUnavailable("Couldn't read that recording") from e
+    if not chunks:
+        return None
+    samples = np.concatenate([frame.to_ndarray().reshape(-1) for frame in chunks])
+    return np.ascontiguousarray(samples.astype(np.float32) / 32768.0)
+
+
+def _transcribe_local(audio: bytes, filename: str, language: str | None) -> dict:
+    suffix = Path(filename).suffix or ".webm"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
+        handle.write(audio)
+        path = handle.name
+    try:
+        samples = _load_audio(path)
+        if samples is None or samples.size == 0:
+            raise SpeechUnavailable("Didn't catch any words")
+        model = _local_model()
+        with _model_lock:
+            segments, info = model.transcribe(samples, language=language, task="transcribe")
+            text = "".join(segment.text for segment in segments).strip()
+        if not text:
+            raise SpeechUnavailable("Didn't catch any words")
+        heard = getattr(info, "language", None) or language
+        return {"text": text, "language": heard, "provider": "local"}
+    finally:
+        Path(path).unlink(missing_ok=True)
+
+
 async def transcribe(audio: bytes, filename: str, content_type: str, language: str | None = None) -> dict:
     s = get_settings()
+    if s.stt_provider == "local":
+        return await asyncio.to_thread(_transcribe_local, audio, filename, language)
     if s.stt_provider == "bhashini":
         if not (s.bhashini_api_key and s.bhashini_url):
             raise SpeechUnavailable("Bhashini is not configured (BHASHINI_API_KEY, BHASHINI_URL)")

@@ -41,9 +41,10 @@ def providers(ctx: OrgContext = Depends(get_org_context)):
     s = get_settings()
     meta = bool(s.meta_app_id and s.meta_app_secret)
     linkedin = bool(s.linkedin_client_id and s.linkedin_client_secret)
+    youtube = bool(s.youtube_client_id and s.youtube_client_secret)
     return {"instagram": {"login": meta, "via": "Instagram"}, "facebook": {"login": meta, "via": "Facebook"},
             "whatsapp": {"login": meta, "via": "Facebook"}, "linkedin": {"login": linkedin, "via": "LinkedIn"},
-            "youtube": {"login": False, "via": "YouTube"}, "x": {"login": False, "via": "X"}}
+            "youtube": {"login": youtube, "via": "YouTube"}, "x": {"login": False, "via": "X"}}
 
 
 @router.delete("/accounts/{account_id}", status_code=204)
@@ -77,7 +78,7 @@ def connect_mock(body: MockIn, ctx: OrgContext = Depends(require_admin)):
 class TokenIn(BaseModel):
     platform: str = Field(pattern=_PLATFORM_RE)
     access_token: str = Field(min_length=8)
-    external_id: str = Field(min_length=2, description="Instagram account id, Facebook page id, WhatsApp phone number id, or LinkedIn URN")
+    external_id: str = Field(min_length=2, description="Instagram account id, Facebook page id, WhatsApp phone number id, LinkedIn URN, or YouTube channel id")
     display_name: str = ""
     business_id: str | None = None
     waba_id: str | None = None
@@ -85,7 +86,7 @@ class TokenIn(BaseModel):
 
 @router.post("/token", status_code=201)
 async def connect_token(body: TokenIn, ctx: OrgContext = Depends(require_admin)):
-    """Connect Instagram, Facebook, WhatsApp or LinkedIn with an access token, without the OAuth dialog."""
+    """Connect Instagram, Facebook, WhatsApp, LinkedIn or YouTube with an access token, without the OAuth dialog."""
     if body.business_id:
         get_owned(ctx, Business, body.business_id)
     try:
@@ -128,6 +129,8 @@ async def callback(platform: str, state: str, code: str | None = None, error: st
         try:
             if platform == "linkedin":
                 accounts = await oauth_service.complete_linkedin(db, code, data["org_id"], data.get("business_id"))
+            elif platform == "youtube":
+                accounts = await oauth_service.complete_youtube(db, code, data["org_id"], data.get("business_id"))
             else:
                 accounts = await oauth_service.complete_meta(db, platform, code, data["org_id"], data.get("business_id"))
         except AdapterError as e:
