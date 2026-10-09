@@ -6,77 +6,98 @@ import LocalityMap from "../components/LocalityMap";
 import { api } from "../lib/api";
 import { displayOffer } from "../lib/offer";
 import { useCampaignStream } from "../lib/stream";
-import { Asset, Brief, Business, Campaign as CampaignT, LANGUAGES, Offer, SocialAccount } from "../lib/types";
-import { Badge, Button, Card, DocumentTitle, ErrorNote, Field, fieldCls, focusCls, idleCls, inputCls, selectedCls, Spinner, statusLabel, statusTone, Stepper } from "../lib/ui";
+import { Asset, Business, Campaign as CampaignT, LANGUAGES, SocialAccount } from "../lib/types";
+import { Badge, Button, Card, DocumentTitle, ErrorNote, Field, fieldCls, focusCls, idleCls, inputCls, selectedCls, Spinner, statusTone, Stepper } from "../lib/ui";
 
-const TABS = ["creatives", "strategy", "content", "localization", "truth", "performance", "approval", "publishing", "analytics"] as const;
-type Tab = (typeof TABS)[number];
-const TAB_LABELS: Record<Tab, string> = {
-  creatives: "Creatives", strategy: "Plan", content: "Copy", localization: "Languages",
-  truth: "Fact check", performance: "Predictions", approval: "Approve", publishing: "Publish", analytics: "Results",
-};
 const FORMAT_NAMES: Record<string, string> = {
   post: "Feed post", story: "Story card", reel: "Reel", carousel: "Carousel", poster: "Poster",
   message: "WhatsApp message", offer_card: "Offer card",
 };
-const STAGE_TABS: Tab[][] = [
-  ["strategy"],
-  ["creatives", "content", "localization", "truth", "performance"],
-  ["approval"],
-  ["publishing", "analytics"],
-];
-const OFFER_LABELS: Record<string, string> = {
-  product: "Promoting", price: "Price", discount: "Deal", duration_text: "Occasion",
-  start_date: "Date", end_date: "Ends", times: "Hours", location: "Where", restrictions: "Limits",
+const STAGE_TABS: Record<number, readonly Tab[]> = {
+  0: ["strategy"],
+  1: ["creatives", "content", "localization", "truth", "performance"],
+  2: ["approval"],
+  3: ["publishing", "analytics"],
+};
+const TAB_LABELS: Record<Tab, string> = {
+  creatives: "Pictures and videos",
+  strategy: "Plan",
+  content: "Copy",
+  localization: "Translations",
+  truth: "Fact-check",
+  performance: "Predictions",
+  approval: "Approve",
+  publishing: "Publish",
+  analytics: "Results",
 };
 
-function cap(s: string) {
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
-}
-function offerLine(brief?: Brief, offer?: Offer): string {
-  const typed = brief?.offer?.trim();
-  if (typed) return displayOffer(typed);
-  const parts = [offer?.discount, offer?.price].filter(Boolean);
-  if (parts.length) return displayOffer(parts.join(" · "));
-  return "No price or deal. We won't invent one.";
-}
-function langList(codes?: string[]) {
-  return (codes ?? []).map((c) => LANGUAGES[c] ?? c).filter(Boolean).join(", ");
-}
-function productOf(c: CampaignT) {
-  return c.brain.brief?.product?.trim() || c.brain.offer?.product || c.title;
-}
-function shopOf(c: CampaignT) {
-  return c.brain.business?.name || "your shop";
-}
-function stageForTab(tab: Tab) {
-  const i = STAGE_TABS.findIndex((tabs) => tabs.includes(tab));
-  return i < 0 ? 1 : i;
+type Tab = "creatives" | "strategy" | "content" | "localization" | "truth" | "performance" | "approval" | "publishing" | "analytics";
+
+function stageForTab(t: Tab): number {
+  for (const [idx, list] of Object.entries(STAGE_TABS)) {
+    if ((list as readonly Tab[]).includes(t)) return Number(idx);
+  }
+  return 0;
 }
 function defaultTab(status: string): Tab {
-  if (status === "strategy_review" || status === "clarifying") return "strategy";
-  if (status === "approved") return "approval";
-  if (status === "publishing" || status === "published") return "publishing";
+  if (status === "strategy_review") return "strategy";
+  if (status === "review") return "approval";
+  if (["approved", "publishing", "published"].includes(status)) return "publishing";
   return "creatives";
 }
-function factRows(offer: Offer) {
-  return (Object.keys(OFFER_LABELS) as (keyof Offer)[]).flatMap((k) => {
-    const v = offer[k];
-    if (v == null || v === "" || (Array.isArray(v) && !v.length)) return [];
-    const text = Array.isArray(v) ? v.join(", ") : String(v);
-    return [{ label: OFFER_LABELS[k], value: displayOffer(text) }];
-  });
+function statusLabel(status: string): string {
+  const map: Record<string, string> = {
+    intake: "Starting",
+    research: "Looking up the area",
+    strategy: "Planning",
+    strategy_review: "Check the plan",
+    generating: "Writing posts",
+    review: "Ready to approve",
+    approved: "Approved",
+    publishing: "Publishing",
+    published: "Published",
+    failed: "Stopped",
+    clarifying: "Needs one detail",
+  };
+  return map[status] ?? status.replaceAll("_", " ");
+}
+function cap(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+function shopOf(c: CampaignT): string {
+  return c.brain.business?.name || "Your shop";
+}
+function productOf(c: CampaignT): string {
+  return c.brain.brief?.product || c.title || "This promotion";
+}
+function langList(codes?: string[]) {
+  return (codes ?? []).map((c) => LANGUAGES[c] ?? c).join(", ");
+}
+function offerLine(brief?: CampaignT["brain"]["brief"], offer?: CampaignT["brain"]["offer"]): string {
+  const typed = brief?.offer?.trim();
+  if (typed) return displayOffer(typed);
+  if (offer?.discount) return `Deal: ${offer.discount}`;
+  if (offer?.price) return `Price: ${offer.price}`;
+  return "No price or deal. We won't invent one.";
+}
+function factRows(offer: CampaignT["brain"]["offer"]): { label: string; value: string }[] {
+  const out: { label: string; value: string }[] = [];
+  if (offer.product) out.push({ label: "Product", value: offer.product });
+  if (offer.price) out.push({ label: "Price", value: offer.price });
+  if (offer.discount) out.push({ label: "Deal", value: offer.discount });
+  if (offer.duration_text) out.push({ label: "When", value: offer.duration_text });
+  if (offer.times) out.push({ label: "Hours", value: offer.times });
+  if (offer.location) out.push({ label: "Place", value: offer.location });
+  return out;
 }
 
 const STAGE_COPY: Record<string, string> = {
-  intake: "Starting. You can leave this page; the campaign keeps going.",
-  business: "Learning how this business should sound.",
-  locality: "Looking up nearby places the copy can mention.",
-  audience: "Choosing who this is for.",
-  strategy: "Planning the campaign.",
-  content: "Writing the posts.",
+  intake: "Starting the campaign.",
+  research: "Finding nearby colleges, offices, and transit.",
+  strategy: "Picking the best platforms and formats for your goal.",
+  copy: "Writing the captions and headlines.",
   localization: "Translating into the languages you chose.",
-  verification: "Checking every number against your offer.",
+  truth: "Checking every line against your facts.",
   performance: "Estimating how this might perform.",
   media: "Drawing the creatives.",
   review: "Finishing the draft.",
@@ -98,6 +119,7 @@ export default function CampaignPage() {
   const [picked, setTab] = useState<Tab | null>(null);
   const [contentFocus, setContentFocus] = useState<Focus | null>(null);
   const [notice, setNotice] = useState("");
+  const [regenAsset, setRegenAsset] = useState<Asset | null>(null);
 
   if (q.isLoading) {
     return (
@@ -198,10 +220,10 @@ export default function CampaignPage() {
       <div role="tabpanel">
         {tab === "creatives" && (
           <CreativesTab assets={assets} generating={status === "generating"} awaitingPlan={status === "strategy_review"}
-            product={product} languageLine={langList(languages) || "the languages you chose"} onOpen={openCopy} />
+            product={product} languageLine={langList(languages) || "the languages you chose"} onOpen={openCopy} onRegenerate={setRegenAsset} />
         )}
         {tab === "strategy" && <StrategyTab campaign={c} onChanged={() => qc.invalidateQueries({ queryKey: ["campaign", id] })} />}
-        {tab === "content" && <ContentTab campaign={c} assets={assets} focus={contentFocus} onChanged={() => qc.invalidateQueries({ queryKey: ["campaign", id] })} />}
+        {tab === "content" && <ContentTab campaign={c} assets={assets} focus={contentFocus} onChanged={() => qc.invalidateQueries({ queryKey: ["campaign", id] })} onRegenerate={setRegenAsset} />}
         {tab === "localization" && <LocalizationTab assets={assets} />}
         {tab === "truth" && <TruthTab assets={assets} onOpen={openCopy} />}
         {tab === "performance" && <PerformanceTab campaign={c} />}
@@ -212,6 +234,14 @@ export default function CampaignPage() {
         {tab === "publishing" && <PublishingTab campaign={c} notice={notice} onGoto={setTab} />}
         {tab === "analytics" && <AnalyticsTab campaign={c} />}
       </div>
+
+      {regenAsset && (
+        <RegenerateDialog
+          asset={regenAsset}
+          onClose={() => setRegenAsset(null)}
+          onComplete={() => qc.invalidateQueries({ queryKey: ["campaign", id] })}
+        />
+      )}
     </div>
   );
 }
@@ -253,13 +283,55 @@ function Clarify({ campaign }: { campaign: CampaignT }) {
       qc.invalidateQueries({ queryKey: ["campaign", campaign.id] });
     },
   });
+
+  const SUGGESTIONS = [
+    "Focus on college students and young professionals",
+    "Highlight our special discount offer",
+    "Promote weekend walk-in visits",
+    "Include both Kannada and English messaging",
+    "Use a fun, energetic and youthful tone",
+    "Emphasize locally sourced ingredients",
+  ];
+
+  function toggleSuggestion(s: string) {
+    if (text.includes(s)) {
+      setText((t) => t.replace(s, "").replace(/,\s*,/g, ",").replace(/^,\s*|,\s*$/g, "").trim());
+    } else {
+      setText((t) => (t ? `${t}, ${s}` : s));
+    }
+  }
+
   return (
-    <Card className="space-y-2 border-amber-300">
+    <Card className="space-y-3 border-amber-300">
       <div className="text-sm font-medium">One detail about {productOf(campaign) || shopOf(campaign)} is missing.</div>
       <ul className="list-disc pl-5 text-sm">{campaign.brain.clarifying_questions.map((q, i) => <li key={i}>{q}</li>)}</ul>
+      
+      <div>
+        <div className="mb-1 text-xs font-medium text-slate-600">Quick options (click multiple to build your answer):</div>
+        <div className="flex flex-wrap gap-1.5">
+          {SUGGESTIONS.map((s) => {
+            const isSel = text.includes(s);
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => toggleSuggestion(s)}
+                className={`rounded-full px-2.5 py-1 text-xs transition-colors ${focusCls} ${
+                  isSel
+                    ? "bg-brand-600 font-semibold text-white shadow-sm ring-1 ring-brand-700"
+                    : idleCls
+                }`}
+              >
+                {isSel ? `✓ ${s}` : `+ ${s}`}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="flex flex-wrap gap-2">
         <input className={`${inputCls} min-w-0 flex-1`} value={text}
-          onChange={(e) => setText(e.target.value)} placeholder="Your answer"
+          onChange={(e) => setText(e.target.value)} placeholder="Your answer or additional details"
           onKeyDown={(e) => { if (e.key === "Enter" && text && !send.isPending) send.mutate(); }} />
         <Button onClick={() => send.mutate()} disabled={!text || send.isPending}>{send.isPending ? "Sending…" : "Send"}</Button>
       </div>
@@ -275,9 +347,22 @@ function StrategyTab({ campaign, onChanged }: { campaign: CampaignT; onChanged: 
   const offer = campaign.brain.offer;
   const [langs, setLangs] = useState<string[]>(s.languages);
   const [tone, setTone] = useState(s.tone);
+  const [codeSwitching, setCodeSwitching] = useState(s.code_switching ?? true);
+  const [codeSwitchingStyle, setCodeSwitchingStyle] = useState(s.code_switching_style ?? "kanglish_hinglish");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState<"save" | "accept" | null>(null);
   const ready = campaign.status === "strategy_review";
+
+  const TONES = [
+    "Fun & youthful", "Warm & friendly", "Premium & elegant",
+    "Bold & energetic", "Calm & trustworthy", "Witty & quirky",
+  ];
+
+  function toggleTone(t: string) {
+    const selected = (tone || "").split(",").map((x) => x.trim()).filter(Boolean);
+    const next = selected.includes(t) ? selected.filter((x) => x !== t) : [...selected, t];
+    setTone(next.join(", "));
+  }
 
   function toggleLang(code: string) {
     setLangs(langs.includes(code) ? langs.filter((l) => l !== code) : [...langs, code]);
@@ -286,7 +371,12 @@ function StrategyTab({ campaign, onChanged }: { campaign: CampaignT; onChanged: 
     setError(null);
     setBusy("save");
     try {
-      await api.put(`/campaigns/${campaign.id}/strategy`, { languages: langs, tone });
+      await api.put(`/campaigns/${campaign.id}/strategy`, {
+        languages: langs,
+        tone,
+        code_switching: codeSwitching,
+        code_switching_style: codeSwitchingStyle,
+      });
       onChanged();
     } catch (e) { setError(e); } finally { setBusy(null); }
   }
@@ -300,7 +390,7 @@ function StrategyTab({ campaign, onChanged }: { campaign: CampaignT; onChanged: 
   const name = shopOf(campaign);
   return (
     <div className="grid gap-4 md:grid-cols-2">
-      <Card className="space-y-2 text-sm">
+      <Card className="space-y-3 text-sm">
         <h2 className="font-semibold">Plan for {name}</h2>
         <p>{s.objective || brief?.goal || "This campaign"} for {s.primary_audience || brief?.audience || "your customers"}. {offerLine(brief, offer)}.</p>
         <div className="flex flex-wrap gap-1">
@@ -309,9 +399,59 @@ function StrategyTab({ campaign, onChanged }: { campaign: CampaignT; onChanged: 
             <Badge key={`${p}-${f}`}>{FORMAT_NAMES[f] ?? f}</Badge>
           )))}
         </div>
-        <Field label="Tone"><input className={inputCls} value={tone} onChange={(e) => setTone(e.target.value)} /></Field>
+
+        <div className="space-y-1.5">
+          <Field label="Tone (Select multiple or type)">
+            <input className={inputCls} value={tone} onChange={(e) => setTone(e.target.value)} />
+          </Field>
+          <div className="flex flex-wrap gap-1.5">
+            {TONES.map((t) => {
+              const isSel = (tone || "").includes(t);
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => toggleTone(t)}
+                  className={`rounded-full px-2.5 py-1 text-xs transition-colors ${focusCls} ${
+                    isSel ? "bg-brand-600 font-semibold text-white shadow-sm ring-1 ring-brand-700" : idleCls
+                  }`}
+                >
+                  {isSel ? `✓ ${t}` : `+ ${t}`}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Translation and code-switching style option */}
+        <div className="space-y-1.5 rounded-lg border border-slate-200 bg-slate-50/70 p-2.5">
+          <div className="text-xs font-semibold text-slate-800">Translation & Localization Style</div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => { setCodeSwitching(true); setCodeSwitchingStyle("kanglish_hinglish"); }}
+              className={`rounded-lg border p-2 text-left text-xs transition-colors ${
+                codeSwitching ? "border-brand-600 bg-brand-50/70 font-medium text-brand-900 ring-1 ring-brand-600" : "border-slate-200 bg-white hover:bg-slate-50"
+              }`}
+            >
+              <div className="font-semibold">⚡ Kanglish / Hinglish / Tanglish</div>
+              <div className="text-[11px] text-slate-500">Conversational code-switching with natural English loanwords</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setCodeSwitching(false); setCodeSwitchingStyle("native_pure"); }}
+              className={`rounded-lg border p-2 text-left text-xs transition-colors ${
+                !codeSwitching ? "border-brand-600 bg-brand-50/70 font-medium text-brand-900 ring-1 ring-brand-600" : "border-slate-200 bg-white hover:bg-slate-50"
+              }`}
+            >
+              <div className="font-semibold">📖 Pure Native Script</div>
+              <div className="text-[11px] text-slate-500">Authentic literary native script without English loanwords</div>
+            </button>
+          </div>
+        </div>
+
         <div>
-          <div className="mb-1 text-sm font-medium text-slate-700">Languages</div>
+          <div className="mb-1 text-sm font-medium text-slate-700">Languages (Select all that apply)</div>
           <div className="flex flex-wrap gap-2">
             {Object.entries(LANGUAGES).map(([code, name]) => (
               <button key={code} type="button" onClick={() => toggleLang(code)}
@@ -319,6 +459,7 @@ function StrategyTab({ campaign, onChanged }: { campaign: CampaignT; onChanged: 
             ))}
           </div>
         </div>
+
         {(s.rationale || s.posting_schedule.length > 0) && <p className="text-sm text-slate-600">Why this plan</p>}
         {s.rationale && <p className="text-slate-600">{s.rationale}</p>}
         <div className="text-xs text-slate-600">{s.posting_schedule.map((sl, i) => <div key={i}>{cap(sl.platform)}: {sl.day} {sl.time} — {sl.reason}</div>)}</div>
@@ -350,7 +491,15 @@ function StrategyTab({ campaign, onChanged }: { campaign: CampaignT; onChanged: 
   );
 }
 
-function CreativesTab({ assets, generating, awaitingPlan, product, languageLine, onOpen }: { assets: Asset[]; generating: boolean; awaitingPlan: boolean; product: string; languageLine: string; onOpen: (asset: Asset) => void }) {
+function CreativesTab({ assets, generating, awaitingPlan, product, languageLine, onOpen, onRegenerate }: {
+  assets: Asset[];
+  generating: boolean;
+  awaitingPlan: boolean;
+  product: string;
+  languageLine: string;
+  onOpen: (asset: Asset) => void;
+  onRegenerate: (asset: Asset) => void;
+}) {
   const languages = [...new Set(assets.map((a) => a.language))];
   const [language, setLanguage] = useState(languages[0] ?? "en");
   const [all, setAll] = useState(false);
@@ -396,7 +545,7 @@ function CreativesTab({ assets, generating, awaitingPlan, product, languageLine,
         </p>
       )}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {shown.map((a) => <CreativeCard key={a.id} asset={a} onZoom={setZoom} onOpen={() => onOpen(a)} />)}
+        {shown.map((a) => <CreativeCard key={a.id} asset={a} onZoom={setZoom} onOpen={() => onOpen(a)} onRegenerate={() => onRegenerate(a)} />)}
       </div>
       {zoom && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6" role="dialog" aria-modal="true" aria-label={zoom.title} onClick={() => setZoom(null)}>
@@ -420,7 +569,17 @@ function mediaNote(a: Asset): string {
   return "Text-only. The copy below is ready to review.";
 }
 
-function CreativeCard({ asset: a, onZoom, onOpen }: { asset: Asset; onZoom: (z: { src: string; title: string }) => void; onOpen: () => void }) {
+function CreativeCard({
+  asset: a,
+  onZoom,
+  onOpen,
+  onRegenerate,
+}: {
+  asset: Asset;
+  onZoom: (z: { src: string; title: string }) => void;
+  onOpen: () => void;
+  onRegenerate: () => void;
+}) {
   const title = `${FORMAT_NAMES[a.format] ?? a.format} · ${a.platform}`;
   const slides = a.content.slide_urls ?? [];
   const [slide, setSlide] = useState(0);
@@ -433,7 +592,7 @@ function CreativeCard({ asset: a, onZoom, onOpen }: { asset: Asset; onZoom: (z: 
         <div className="text-base font-semibold">{a.content.headline || (a.format === "message" ? String(a.content.body ?? "").split("\n")[0] : FORMAT_NAMES[a.format] ?? a.format)}</div>
         <span className="ml-auto"><Badge tone={statusTone(a.status)}>{statusLabel(a.status)}</Badge></span>
       </div>
-      <div className="text-xs text-slate-600">{FORMAT_NAMES[a.format] ?? a.format} · {cap(a.platform)}</div>
+      <div className="text-xs text-slate-600">{FORMAT_NAMES[a.format] ?? a.format} · {cap(a.platform)} · {LANGUAGES[a.language] ?? a.language}</div>
       {src ? (
         <button type="button" onClick={() => onZoom({ src, title })}
           className={`flex items-center justify-center overflow-hidden rounded-lg bg-slate-100 ${focusCls} ${tall ? "h-96" : "h-72"}`}>
@@ -471,6 +630,7 @@ function CreativeCard({ asset: a, onZoom, onOpen }: { asset: Asset; onZoom: (z: 
         {src && <a href={src} download className={`rounded border border-slate-500 px-2 py-1 hover:bg-slate-50 ${focusCls}`}>Download</a>}
         {slides.length > 1 && <span className="text-slate-600">slide {slide + 1}/{slides.length}</span>}
         <Button kind="ghost" small onClick={onOpen}>Edit copy</Button>
+        <Button kind="ghost" small onClick={onRegenerate}>🔄 Regenerate image</Button>
         {source && <span className="ml-auto text-slate-600">{source === "storyboard" ? "Animated storyboard" : source === "composed" ? "Composed design" : "AI generated"}</span>}
       </div>
     </Card>
@@ -482,7 +642,19 @@ function assetText(a: Asset): string {
   return [c.headline, c.hook, c.body, c.cta, ...(c.slides ?? []), ...(c.hashtags ?? [])].filter(Boolean).join("\n\n");
 }
 
-function ContentTab({ campaign, assets, focus, onChanged }: { campaign: CampaignT; assets: Asset[]; focus: Focus | null; onChanged: () => void }) {
+function ContentTab({
+  campaign,
+  assets,
+  focus,
+  onChanged,
+  onRegenerate,
+}: {
+  campaign: CampaignT;
+  assets: Asset[];
+  focus: Focus | null;
+  onChanged: () => void;
+  onRegenerate: (asset: Asset) => void;
+}) {
   const [platform, setPlatform] = useState(focus?.platform ?? assets[0]?.platform ?? "");
   const [language, setLanguage] = useState(focus?.language ?? assets[0]?.language ?? "");
   useEffect(() => {
@@ -503,13 +675,23 @@ function ContentTab({ campaign, assets, focus, onChanged }: { campaign: Campaign
         {languages.map((l) => <button key={l} type="button" onClick={() => setLanguage(l)} className={`rounded-lg px-2.5 py-1 ${focusCls} ${l === language ? selectedCls : idleCls}`}>{LANGUAGES[l] ?? l}</button>)}
       </div>
       <div className="grid gap-3 md:grid-cols-2">
-        {shown.map((a) => <AssetCard key={a.id} asset={a} campaign={campaign} onChanged={onChanged} />)}
+        {shown.map((a) => <AssetCard key={a.id} asset={a} campaign={campaign} onChanged={onChanged} onRegenerate={() => onRegenerate(a)} />)}
       </div>
     </div>
   );
 }
 
-function AssetCard({ asset, campaign, onChanged }: { asset: Asset; campaign: CampaignT; onChanged: () => void }) {
+function AssetCard({
+  asset,
+  campaign,
+  onChanged,
+  onRegenerate,
+}: {
+  asset: Asset;
+  campaign: CampaignT;
+  onChanged: () => void;
+  onRegenerate: () => void;
+}) {
   const [editing, setEditing] = useState(false);
   const [body, setBody] = useState(String(asset.content.body ?? ""));
   const [error, setError] = useState<unknown>(null);
@@ -547,11 +729,150 @@ function AssetCard({ asset, campaign, onChanged }: { asset: Asset; campaign: Cam
           try { await api.patch(`/assets/${asset.id}`, { content: { ...asset.content, body } }); setEditing(false); onChanged(); }
           catch (e) { setError(e); } finally { setBusy(null); }
         }}>{busy === "save" ? "Saving…" : "Save and re-check"}</Button>}
-        <Button small kind="ghost" disabled={busy !== null} onClick={() => act("regenerate")}>{busy === "regenerate" ? "Regenerating…" : "Regenerate"}</Button>
+        <Button small kind="ghost" onClick={onRegenerate}>🔄 Regenerate with corrections</Button>
         <Button small kind="danger" disabled={busy !== null} onClick={() => act("reject")}>{busy === "reject" ? "Rejecting…" : "Reject"}</Button>
       </div>
       <ErrorNote error={error} />
     </Card>
+  );
+}
+
+function RegenerateDialog({
+  asset,
+  onClose,
+  onComplete,
+}: {
+  asset: Asset;
+  onClose: () => void;
+  onComplete: () => void;
+}) {
+  const [instructions, setInstructions] = useState("");
+  const [allLanguages, setAllLanguages] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  const QUICK_FEEDBACK = [
+    "Brighter lighting & higher contrast",
+    "Emphasize the discount badge prominently",
+    "Make the food look crispier and more appetizing",
+    "More vibrant & modern youth aesthetics",
+    "Punchier, bolder headline",
+    "Include local festive & cultural vibe",
+  ];
+
+  function toggleChip(chip: string) {
+    if (instructions.includes(chip)) {
+      setInstructions((i) =>
+        i.replace(chip, "").replace(/,\s*,/g, ",").replace(/^,\s*|,\s*$/g, "").trim()
+      );
+    } else {
+      setInstructions((i) => (i ? `${i}, ${chip}` : chip));
+    }
+  }
+
+  async function handleRegenerate() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post(`/assets/${asset.id}/regenerate`, {
+        instructions: instructions.trim() || null,
+        all_languages: allLanguages,
+      });
+      onComplete();
+      onClose();
+    } catch (e) {
+      setError(e);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-lg space-y-4 rounded-2xl bg-white p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">
+              🔄 Regenerate Ad Creative & Image
+            </h3>
+            <p className="text-xs text-slate-500">
+              Specify what corrections or improvements you need for {FORMAT_NAMES[asset.format] ?? asset.format} ({cap(asset.platform)}).
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="space-y-2">
+          <label className="block text-xs font-semibold text-slate-700">
+            What corrections or improvements do you need? (Optional)
+          </label>
+          <textarea
+            className={`${inputCls} text-xs`}
+            rows={3}
+            value={instructions}
+            onChange={(e) => setInstructions(e.target.value)}
+            placeholder="e.g. Make the product lighting brighter, emphasize the 20% discount offer prominently, use more vibrant colors..."
+          />
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {QUICK_FEEDBACK.map((q) => {
+              const isSel = instructions.includes(q);
+              return (
+                <button
+                  key={q}
+                  type="button"
+                  onClick={() => toggleChip(q)}
+                  className={`rounded-full px-2.5 py-1 text-xs transition-colors ${focusCls} ${
+                    isSel
+                      ? "bg-brand-600 font-semibold text-white shadow-sm ring-1 ring-brand-700"
+                      : idleCls
+                  }`}
+                >
+                  {isSel ? `✓ ${q}` : `+ ${q}`}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-brand-100 bg-brand-50/60 p-3">
+          <label className="flex items-start gap-2.5 cursor-pointer text-xs">
+            <input
+              type="checkbox"
+              className="mt-0.5 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+              checked={allLanguages}
+              onChange={(e) => setAllLanguages(e.target.checked)}
+            />
+            <div>
+              <span className="font-semibold text-slate-900">
+                Reflect regenerated image across all languages (English, Kannada, Hindi...)
+              </span>
+              <p className="text-slate-600">
+                When enabled, the corrected image is synchronized across all regional language variants of this ad format.
+              </p>
+            </div>
+          </label>
+        </div>
+
+        <ErrorNote error={error} />
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button kind="ghost" small onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button small onClick={handleRegenerate} disabled={busy}>
+            {busy ? "Regenerating…" : "✨ Apply Corrections & Regenerate"}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

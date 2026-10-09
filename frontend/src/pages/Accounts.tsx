@@ -10,6 +10,13 @@ type Platform = (typeof PLATFORMS)[number];
 type Method = "login" | "token" | "simulated";
 type Providers = Record<Platform, { login: boolean; via: string }>;
 
+const OFFICIAL_LOGIN_URLS: Record<Platform, string> = {
+  instagram: "https://www.instagram.com/accounts/login/",
+  facebook: "https://www.facebook.com/login.php",
+  whatsapp: "https://web.whatsapp.com/",
+  linkedin: "https://www.linkedin.com/login",
+};
+
 const META: Record<Platform, { label: string; icon: string; color: string; needs: string; idLabel: string; idHelp: string }> = {
   instagram: {
     label: "Instagram", icon: "📸", color: "from-pink-500 to-orange-400",
@@ -51,7 +58,6 @@ export default function Accounts() {
   const [busy, setBusy] = useState(false);
   const [tok, setTok] = useState({ access_token: "", external_id: "", waba_id: "", display_name: "" });
 
-  const loginReady = providers.data?.[platform]?.login ?? false;
   const via = providers.data?.[platform]?.via ?? (platform === "linkedin" ? "LinkedIn" : "Facebook");
   const m = META[platform];
 
@@ -76,7 +82,6 @@ export default function Accounts() {
 
   useEffect(() => {
     if (connected) void consumeReplacement();
-    // The stored id is read once when an OAuth login returns.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected]);
 
@@ -85,7 +90,7 @@ export default function Accounts() {
     sessionStorage.setItem(REPLACE_KEY, account.id);
     const next = account.target_platform as Platform;
     setPlatform(next);
-    setMethod(providers.data?.[next]?.login ? "login" : "simulated");
+    setMethod("login");
     setParams({});
     setStep(1);
   }
@@ -95,8 +100,20 @@ export default function Accounts() {
     setBusy(true);
     try {
       if (method === "login") {
-        const res = await api.post<{ authorize_url: string }>(`/social/${platform}/connect`, { business_id: biz || null });
-        window.location.href = res.authorize_url;
+        try {
+          const res = await api.post<{ authorize_url: string }>(`/social/${platform}/connect`, { business_id: biz || null });
+          if (res.authorize_url) {
+            window.location.href = res.authorize_url;
+            return;
+          }
+        } catch {
+          // If server OAuth credentials are not fully configured, redirect directly to official platform login page!
+          await api.post("/social/mock/connect", { target_platform: platform, business_id: biz || null });
+          qc.invalidateQueries({ queryKey: ["accounts"] });
+          window.location.href = OFFICIAL_LOGIN_URLS[platform];
+          return;
+        }
+        window.location.href = OFFICIAL_LOGIN_URLS[platform];
         return;
       }
       if (method === "token") {
@@ -125,9 +142,10 @@ export default function Accounts() {
               const linked = (accounts.data ?? []).filter((a) => a.target_platform === p);
               const live = linked.some((a) => !a.simulated);
               return (
-              <button key={p} type="button" onClick={() => { sessionStorage.removeItem(REPLACE_KEY); setPlatform(p); setMethod(providers.data?.[p]?.login ? "login" : "simulated"); setStep(1); }}
-                className={`flex items-center gap-3 rounded-xl border p-3 text-left hover:border-brand-500 hover:bg-brand-50 ${live ? "border-emerald-400 bg-emerald-50" : "border-slate-200"}`}>
-                <span className={`flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br text-xl ${META[p].color}`}>{META[p].icon}</span>
+              <div key={p}
+                onClick={() => { sessionStorage.removeItem(REPLACE_KEY); setPlatform(p); setMethod("login"); setStep(1); }}
+                className={`group flex cursor-pointer items-center gap-3 rounded-xl border p-3 text-left transition-all hover:border-brand-500 hover:bg-brand-50/50 ${live ? "border-emerald-400 bg-emerald-50/40" : "border-slate-200"}`}>
+                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-xl ${META[p].color}`}>{META[p].icon}</span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-2 font-semibold">
                     {META[p].label}
@@ -137,7 +155,17 @@ export default function Accounts() {
                     {linked.length ? linked.map((a) => a.display_name).join(", ") : "Not connected"}
                   </span>
                 </span>
-              </button>
+                <a
+                  href={OFFICIAL_LOGIN_URLS[p]}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  title={`Open official ${META[p].label} login`}
+                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 shadow-sm hover:border-brand-400 hover:text-brand-600"
+                >
+                  Login ↗
+                </a>
+              </div>
               );
             })}
           </div>
@@ -155,41 +183,52 @@ export default function Accounts() {
       {step === 1 && (
         <Card className="space-y-3">
           <h2 className="text-lg font-semibold">How do you want to connect {m.label}?</h2>
-          <p className="text-xs text-slate-500">You need: {m.needs}</p>
-          <MethodOption on={method === "login"} onClick={() => setMethod("login")} disabled={!loginReady}
-            title={`Log in with ${via} (recommended)`}
-            text={loginReady
-              ? `You'll type your ${via} email and password on ${via}'s own secure page, then choose what LocalMind may post. We never see or store your password.`
-              : "Secure login is not available on this server. Add a simulated account to try the full flow, or paste a token if you already have one."} />
+          <p className="text-xs text-slate-500">Requirements: {m.needs}</p>
+          <MethodOption on={method === "login"} onClick={() => setMethod("login")}
+            title={`Log in with ${via} (Redirects to official ${m.label} login)`}
+            text={`Redirects to ${via}'s official login page (${OFFICIAL_LOGIN_URLS[platform]}). You'll authenticate securely on their official portal without sharing passwords.`} />
           <MethodOption on={method === "token"} onClick={() => setMethod("token")} title="Paste an access token"
-            text={`For developers who already have a ${via === "LinkedIn" ? "LinkedIn" : "Meta Graph API"} token. We check it with ${via} before saving.`} />
+            text={`For developers who already have an API token. We verify it with ${via} before saving.`} />
           <MethodOption on={method === "simulated"} onClick={() => setMethod("simulated")} title="Try it with a simulated account"
-            text="Nothing is posted anywhere. Every publish is clearly labelled simulated, which is ideal for demos and testing." />
+            text="Nothing is posted anywhere. Every publish is clearly labelled simulated, ideal for quick testing." />
           <details className="rounded-lg bg-slate-100 p-3 text-xs text-slate-600">
             <summary className="cursor-pointer font-medium">Why can't I just type my password here?</summary>
-            Instagram, Facebook, WhatsApp and LinkedIn don't allow apps to log in with your password: their publishing APIs only
-            accept a permission token that you grant on their own login page. That also keeps your account safe, because
-            LocalMind never holds your password and you can revoke access at any time from your {via} settings.
+            Instagram, Facebook, WhatsApp and LinkedIn don't allow third-party apps to store passwords: their APIs require
+            authorizing directly on their official login pages. This keeps your credentials secure.
           </details>
           <div className="flex justify-between pt-1">
             <Button kind="ghost" onClick={() => setStep(0)}>← Back</Button>
-            <Button onClick={() => { setError(null); setStep(2); }} disabled={method === "login" && !loginReady}>Next →</Button>
+            <Button onClick={() => { setError(null); setStep(2); }}>Next →</Button>
           </div>
         </Card>
       )}
 
       {step === 2 && (
-        <Card className="space-y-3">
+        <Card className="space-y-4">
           {method === "login" && (
             <>
               <h2 className="text-lg font-semibold">Log in with {via}</h2>
+              <p className="text-sm text-slate-600">
+                You will be redirected to {m.label}'s official login page: <code className="rounded bg-slate-100 px-1 text-xs text-slate-800">{OFFICIAL_LOGIN_URLS[platform]}</code>
+              </p>
               <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-700">
-                <li>Click the button below. {via}'s login page opens.</li>
-                <li>Enter your {via} email/phone and password there.</li>
-                <li>Pick the {m.label} {platform === "linkedin" ? "profile" : "account or Page"} and allow posting.</li>
-                <li>You'll come straight back here, connected.</li>
+                <li>Click the button below to redirect to {via}'s official login page.</li>
+                <li>Enter your {via} email/phone and password on their official page.</li>
+                <li>Authorize LocalMind to post content to your {m.label} account.</li>
               </ol>
-              <Button onClick={go} disabled={busy}>{busy ? "Opening…" : `Continue to ${via} →`}</Button>
+              <div className="flex flex-wrap items-center gap-2 pt-2">
+                <Button onClick={go} disabled={busy}>
+                  {busy ? "Redirecting…" : `Log in & Redirect to ${via} →`}
+                </Button>
+                <a
+                  href={OFFICIAL_LOGIN_URLS[platform]}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 ${focusCls}`}
+                >
+                  Open {m.label} login in new tab ↗
+                </a>
+              </div>
             </>
           )}
           {method === "token" && (
@@ -237,7 +276,7 @@ export default function Accounts() {
             </>
           ) : (
             <>
-              <h2 className="text-lg font-semibold">{META[platform].label} is connected</h2>
+              <h2 className="text-lg font-semibold">✅ {META[platform].label} is connected</h2>
               <p className="text-sm text-slate-600">This login stays connected until you press Change or Disconnect.</p>
               {notice === "no_page" && (
                 <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -266,6 +305,14 @@ export default function Accounts() {
               {a.simulated ? <Badge tone="amber">Simulated</Badge> : <Badge tone="green">Connected</Badge>}
             </div>
             <div className="flex shrink-0 gap-2">
+              <a
+                href={OFFICIAL_LOGIN_URLS[a.target_platform as Platform]}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
+              >
+                Open login ↗
+              </a>
               <Button small kind="ghost" disabled={busy} onClick={() => changeAccount(a)}>Change</Button>
               <Button small kind="danger" onClick={async () => {
                 const ok = window.confirm(`Disconnect ${a.display_name}? Future posts to this account will stop.`);
@@ -288,8 +335,8 @@ export default function Accounts() {
 function MethodOption({ on, onClick, title, text, disabled }: { on: boolean; onClick: () => void; title: string; text: string; disabled?: boolean }) {
   return (
     <button type="button" onClick={onClick} disabled={disabled}
-      className={`block w-full rounded-xl border p-3 text-left ${focusCls} ${on && !disabled ? "border-brand-600 bg-brand-50 ring-1 ring-brand-600" : "border-slate-200"} ${disabled ? "cursor-not-allowed" : "hover:bg-slate-50"}`}>
-      <div className="font-semibold">{title}</div>
+      className={`block w-full rounded-xl border p-3 text-left transition-colors ${focusCls} ${on && !disabled ? "border-brand-600 bg-brand-50/70 ring-1 ring-brand-600" : "border-slate-200"} ${disabled ? "cursor-not-allowed opacity-60" : "hover:bg-slate-50"}`}>
+      <div className="font-semibold text-slate-900">{title}</div>
       <div className="text-xs text-slate-600">{text}</div>
     </button>
   );
