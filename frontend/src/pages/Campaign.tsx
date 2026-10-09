@@ -5,8 +5,8 @@ import { Link, useParams } from "react-router-dom";
 import LocalityMap from "../components/LocalityMap";
 import { api } from "../lib/api";
 import { useCampaignStream } from "../lib/stream";
-import { Asset, Campaign as CampaignT, LANGUAGES, SocialAccount } from "../lib/types";
-import { Badge, Button, Card, DocumentTitle, ErrorNote, Field, fieldCls, focusCls, idleCls, inputCls, selectedCls, Spinner, statusLabel, statusTone } from "../lib/ui";
+import { Asset, Brief, Business, Campaign as CampaignT, LANGUAGES, Offer, SocialAccount } from "../lib/types";
+import { Badge, Button, Card, DocumentTitle, ErrorNote, Field, fieldCls, focusCls, idleCls, inputCls, selectedCls, Spinner, statusLabel, statusTone, Stepper } from "../lib/ui";
 
 const TABS = ["creatives", "strategy", "content", "localization", "truth", "performance", "approval", "publishing", "analytics"] as const;
 type Tab = (typeof TABS)[number];
@@ -18,6 +18,54 @@ const FORMAT_NAMES: Record<string, string> = {
   post: "Feed post", story: "Story card", reel: "Reel", carousel: "Carousel", poster: "Poster",
   message: "WhatsApp message", offer_card: "Offer card",
 };
+const STAGE_TABS: Tab[][] = [
+  ["strategy"],
+  ["creatives", "content", "localization", "truth", "performance"],
+  ["approval"],
+  ["publishing", "analytics"],
+];
+const OFFER_LABELS: Record<string, string> = {
+  product: "Promoting", price: "Price", discount: "Deal", duration_text: "Occasion",
+  start_date: "Date", end_date: "Ends", times: "Hours", location: "Where", restrictions: "Limits",
+};
+
+function cap(s: string) {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+function offerLine(brief?: Brief, offer?: Offer): string {
+  const typed = brief?.offer?.trim();
+  if (typed) return typed;
+  const parts = [offer?.discount, offer?.price].filter(Boolean);
+  if (parts.length) return parts.join(" · ");
+  return "No price or deal. We won't invent one.";
+}
+function langList(codes?: string[]) {
+  return (codes ?? []).map((c) => LANGUAGES[c] ?? c).filter(Boolean).join(", ");
+}
+function productOf(c: CampaignT) {
+  return c.brain.brief?.product?.trim() || c.brain.offer?.product || c.title;
+}
+function shopOf(c: CampaignT) {
+  return c.brain.business?.name || "your shop";
+}
+function stageForTab(tab: Tab) {
+  const i = STAGE_TABS.findIndex((tabs) => tabs.includes(tab));
+  return i < 0 ? 1 : i;
+}
+function defaultTab(status: string): Tab {
+  if (status === "strategy_review" || status === "clarifying") return "strategy";
+  if (status === "approved") return "approval";
+  if (status === "publishing" || status === "published") return "publishing";
+  return "creatives";
+}
+function factRows(offer: Offer) {
+  return (Object.keys(OFFER_LABELS) as (keyof Offer)[]).flatMap((k) => {
+    const v = offer[k];
+    if (v == null || v === "" || (Array.isArray(v) && !v.length)) return [];
+    return [{ label: OFFER_LABELS[k], value: Array.isArray(v) ? v.join(", ") : String(v) }];
+  });
+}
+
 const STAGE_COPY: Record<string, string> = {
   intake: "Starting. You can leave this page; the campaign keeps going.",
   business: "Learning how this business should sound.",
@@ -42,6 +90,7 @@ export default function CampaignPage() {
     queryFn: () => api.get<CampaignT>(`/campaigns/${id}`),
     refetchInterval: (query) => (query.state.data?.status === "generating" ? 2500 : false),
   });
+  const businesses = useQuery({ queryKey: ["businesses"], queryFn: () => api.get<Business[]>("/businesses") });
   const c = q.data;
   const live = useCampaignStream(id, c?.status === "generating");
   const [picked, setTab] = useState<Tab | null>(null);
@@ -67,38 +116,54 @@ export default function CampaignPage() {
   }
 
   const assets = c.assets ?? [];
-  const tab = picked ?? (assets.length ? "creatives" : "strategy");
   const status = live.status && c.status === "generating" ? live.status : c.status;
+  const tab = picked ?? defaultTab(status);
+  const stage = stageForTab(tab);
+  const shop = businesses.data?.find((b) => b.id === c.business_id);
+  const shopName = shop?.name || shopOf(c);
+  const product = productOf(c);
+  const deal = offerLine(c.brain.brief, c.brain.offer);
+  const audience = c.brain.brief?.audience || c.brain.strategy?.primary_audience;
+  const platforms = c.brain.strategy?.platforms ?? [];
+  const languages = c.brain.strategy?.languages ?? [];
   const broken = assets.find((a) => a.is_selected && (a.status === "failed" || a.verification?.status === "failed"));
-  const step = nextStep(status, (c.summary?.failed ?? 0) > 0);
-  const stageLine = STAGE_COPY[c.stage ?? ""] ?? "Writing the posts.";
+  const step = nextStep(c, (c.summary?.failed ?? 0) > 0);
+  const stageLine = `Writing ${product} for ${shopName}${languages.length ? ` in ${langList(languages)}` : ""}.`;
 
   function openCopy(asset: Asset) {
     setContentFocus({ platform: asset.platform, language: asset.language, assetId: asset.id });
     setTab("content");
   }
 
+  const place = [shop?.category, shop?.city].filter(Boolean).join(" · ");
+
   return (
     <div className="space-y-4">
       <DocumentTitle title={c.title} />
       <div>
+        <p className="text-sm text-slate-600">{shopName}{place ? ` · ${place}` : ""}</p>
         <h1 className="text-2xl font-bold">{c.title}</h1>
-        <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+        <p className="mt-1 text-sm text-slate-600">{deal}{audience ? ` · ${audience}` : ""}</p>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <Badge tone={statusTone(status)}>{statusLabel(status)}</Badge>
-          <span>Version {c.current_version}</span>
+          {platforms.map((p) => <Badge key={p}>{cap(p)}</Badge>)}
+          {languages.map((l) => <Badge key={l}>{LANGUAGES[l] ?? l}</Badge>)}
         </div>
       </div>
 
       {status === "generating" && (
         <Card>
-          <p role="status" className="mb-1 flex items-center gap-2 text-sm font-medium"><Spinner /> {stageLine}</p>
-          {c.stage !== "intake" && <p className="mb-2 text-xs text-slate-600">You can leave this page. The campaign keeps going.</p>}
-          <ul className="max-h-40 space-y-1 overflow-auto text-xs text-slate-600">
-            {live.events.slice(-12).map((e) => (
-              <li key={e.seq}><span className="font-medium text-slate-800">{e.agent}</span> — {e.message}</li>
-            ))}
-            {live.events.length === 0 && <li>Starting. You can leave this page; the campaign keeps going.</li>}
-          </ul>
+          <p role="status" className="flex items-center gap-2 text-sm font-medium"><Spinner /> {stageLine}</p>
+          <p className="mt-1 text-xs text-slate-600">{STAGE_COPY[c.stage ?? ""] ?? "You can leave this page. The campaign keeps going."}</p>
+          <details className="mt-2 text-xs text-slate-600">
+            <summary className="cursor-pointer font-medium text-slate-700">What we're doing</summary>
+            <ul className="mt-2 max-h-40 space-y-1 overflow-auto">
+              {live.events.slice(-12).map((e) => (
+                <li key={e.seq}>{e.message} <span className="text-slate-500">{e.agent}</span></li>
+              ))}
+              {live.events.length === 0 && <li>Starting. You can leave this page; the campaign keeps going.</li>}
+            </ul>
+          </details>
         </Card>
       )}
 
@@ -117,8 +182,10 @@ export default function CampaignPage() {
         </Card>
       )}
 
+      <Stepper steps={["Plan", "Your posts", "Approve", "Publish"]} step={stage} onJump={(i) => setTab(STAGE_TABS[i][0])} />
+
       <div role="tablist" aria-label="Campaign sections" className="flex flex-wrap gap-1 border-b border-slate-200 text-sm">
-        {TABS.map((t) => (
+        {STAGE_TABS[stage].map((t) => (
           <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
             className={`-mb-px rounded-t-lg px-3 py-2 ${focusCls} ${tab === t ? "border border-b-white border-slate-200 bg-white font-semibold text-brand-700" : "text-slate-600 hover:text-slate-800"}`}>
             {TAB_LABELS[t]}
@@ -126,34 +193,50 @@ export default function CampaignPage() {
         ))}
       </div>
 
-      {tab === "creatives" && <CreativesTab assets={assets} generating={status === "generating"} awaitingPlan={status === "strategy_review"} onOpen={openCopy} />}
-      {tab === "strategy" && <StrategyTab campaign={c} onChanged={() => qc.invalidateQueries({ queryKey: ["campaign", id] })} />}
-      {tab === "content" && <ContentTab assets={assets} focus={contentFocus} onChanged={() => qc.invalidateQueries({ queryKey: ["campaign", id] })} />}
-      {tab === "localization" && <LocalizationTab assets={assets} />}
-      {tab === "truth" && <TruthTab assets={assets} onOpen={openCopy} />}
-      {tab === "performance" && <PerformanceTab campaign={c} />}
-      {tab === "approval" && (
-        <ApprovalTab campaign={c} onChanged={() => qc.invalidateQueries({ queryKey: ["campaign", id] })}
-          onApproved={() => { setNotice("Approved. Nothing publishes until you say so."); setTab("publishing"); }} />
-      )}
-      {tab === "publishing" && <PublishingTab campaign={c} notice={notice} onGoto={setTab} />}
-      {tab === "analytics" && <AnalyticsTab campaign={c} />}
+      <div role="tabpanel">
+        {tab === "creatives" && (
+          <CreativesTab assets={assets} generating={status === "generating"} awaitingPlan={status === "strategy_review"}
+            product={product} languageLine={langList(languages) || "the languages you chose"} onOpen={openCopy} />
+        )}
+        {tab === "strategy" && <StrategyTab campaign={c} onChanged={() => qc.invalidateQueries({ queryKey: ["campaign", id] })} />}
+        {tab === "content" && <ContentTab campaign={c} assets={assets} focus={contentFocus} onChanged={() => qc.invalidateQueries({ queryKey: ["campaign", id] })} />}
+        {tab === "localization" && <LocalizationTab assets={assets} />}
+        {tab === "truth" && <TruthTab assets={assets} onOpen={openCopy} />}
+        {tab === "performance" && <PerformanceTab campaign={c} />}
+        {tab === "approval" && (
+          <ApprovalTab campaign={c} onChanged={() => qc.invalidateQueries({ queryKey: ["campaign", id] })}
+            onApproved={() => { setNotice("Approved. Nothing publishes until you say so."); setTab("publishing"); }} />
+        )}
+        {tab === "publishing" && <PublishingTab campaign={c} notice={notice} onGoto={setTab} />}
+        {tab === "analytics" && <AnalyticsTab campaign={c} />}
+      </div>
     </div>
   );
 }
 
-function nextStep(status: string, hasFailures: boolean): { title: string; detail: string; tab: Tab; action: string } | null {
-  if (status === "strategy_review") {
-    return { title: "Review the plan", detail: "Accept it when the platforms, languages, and tone look right.", tab: "strategy", action: "Open plan" };
+function nextStep(c: CampaignT, hasFailures: boolean): { title: string; detail: string; tab: Tab; action: string } | null {
+  const name = shopOf(c);
+  const product = productOf(c);
+  const platforms = (c.brain.strategy?.platforms ?? []).map(cap).join(", ") || "your accounts";
+  const languages = langList(c.brain.strategy?.languages);
+  const audience = c.brain.brief?.audience || c.brain.strategy?.primary_audience || "your customers";
+  const deal = offerLine(c.brain.brief, c.brain.offer);
+  if (c.status === "strategy_review") {
+    return {
+      title: `Check the plan for ${name}`,
+      detail: `${product} for ${audience}, on ${platforms}${languages ? `, in ${languages}` : ""}.`,
+      tab: "strategy",
+      action: "Accept this plan",
+    };
   }
-  if (hasFailures && (status === "review" || status === "approved")) {
-    return { title: "A fact check failed", detail: "Approval stays off until every selected piece is verified.", tab: "content", action: "Open the copy" };
+  if (hasFailures && (c.status === "review" || c.status === "approved")) {
+    return { title: "A line doesn't match your facts", detail: deal, tab: "content", action: "Fix the copy" };
   }
-  if (status === "review") {
-    return { title: "Ready for your approval", detail: "Nothing publishes until you approve.", tab: "approval", action: "Review and approve" };
+  if (c.status === "review") {
+    return { title: `Approve ${product}`, detail: `Nothing goes to ${platforms} until you approve.`, tab: "approval", action: "Review and approve" };
   }
-  if (status === "approved") {
-    return { title: "Ready to publish", detail: "Choose when it goes out. You can still hold it.", tab: "publishing", action: "Go to publish" };
+  if (c.status === "approved") {
+    return { title: `Publish ${product} for ${name}`, detail: "You can send it now or pick a time.", tab: "publishing", action: "Go to publish" };
   }
   return null;
 }
@@ -170,7 +253,7 @@ function Clarify({ campaign }: { campaign: CampaignT }) {
   });
   return (
     <Card className="space-y-2 border-amber-300">
-      <div className="text-sm font-medium">One detail is missing before planning can continue.</div>
+      <div className="text-sm font-medium">One detail about {productOf(campaign) || shopOf(campaign)} is missing.</div>
       <ul className="list-disc pl-5 text-sm">{campaign.brain.clarifying_questions.map((q, i) => <li key={i}>{q}</li>)}</ul>
       <div className="flex flex-wrap gap-2">
         <input className={`${inputCls} min-w-0 flex-1`} value={text}
@@ -211,15 +294,19 @@ function StrategyTab({ campaign, onChanged }: { campaign: CampaignT; onChanged: 
     try { await api.post(`/campaigns/${campaign.id}/strategy/accept`); onChanged(); } catch (e) { setError(e); } finally { setBusy(null); }
   }
 
+  const brief = campaign.brain.brief;
+  const name = shopOf(campaign);
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <Card className="space-y-2 text-sm">
-        <h2 className="font-semibold">Plan</h2>
-        <p><b>Objective:</b> {s.objective || "—"}</p>
-        <p><b>Primary audience:</b> {s.primary_audience || "—"}</p>
-        <p><b>Platforms:</b> {s.platforms.join(", ") || "—"}</p>
-        <div>{Object.entries(s.formats).map(([p, fs]) => (
-          <div key={p} className="text-xs text-slate-600">{p}: {fs.join(", ")}</div>))}</div>
+        <h2 className="font-semibold">Plan for {name}</h2>
+        <p>{s.objective || brief?.goal || "This campaign"} for {s.primary_audience || brief?.audience || "your customers"}. {offerLine(brief, offer)}.</p>
+        <div className="flex flex-wrap gap-1">
+          {s.platforms.map((p) => <Badge key={p}>{cap(p)}</Badge>)}
+          {Object.entries(s.formats).flatMap(([p, fs]) => fs.map((f) => (
+            <Badge key={`${p}-${f}`}>{FORMAT_NAMES[f] ?? f}</Badge>
+          )))}
+        </div>
         <Field label="Tone"><input className={inputCls} value={tone} onChange={(e) => setTone(e.target.value)} /></Field>
         <div>
           <div className="mb-1 text-sm font-medium text-slate-700">Languages</div>
@@ -230,8 +317,9 @@ function StrategyTab({ campaign, onChanged }: { campaign: CampaignT; onChanged: 
             ))}
           </div>
         </div>
-        <p className="text-slate-600">{s.rationale}</p>
-        <div className="text-xs text-slate-600">{s.posting_schedule.map((sl, i) => <div key={i}>{sl.platform}: {sl.day} {sl.time} — {sl.reason}</div>)}</div>
+        {(s.rationale || s.posting_schedule.length > 0) && <p className="text-sm text-slate-600">Why this plan</p>}
+        {s.rationale && <p className="text-slate-600">{s.rationale}</p>}
+        <div className="text-xs text-slate-600">{s.posting_schedule.map((sl, i) => <div key={i}>{cap(sl.platform)}: {sl.day} {sl.time} — {sl.reason}</div>)}</div>
         <div className="flex flex-wrap gap-2 pt-1">
           <Button kind="ghost" small disabled={busy !== null} onClick={save}>{busy === "save" ? "Saving…" : "Save edits"}</Button>
           {ready && <Button small disabled={busy !== null} onClick={accept}>{busy === "accept" ? "Starting…" : "Accept plan and write the posts"}</Button>}
@@ -239,12 +327,15 @@ function StrategyTab({ campaign, onChanged }: { campaign: CampaignT; onChanged: 
         <ErrorNote error={error} />
       </Card>
       <Card className="space-y-2 text-sm">
-        <h2 className="font-semibold">Facts you locked in</h2>
+        <h2 className="font-semibold">Your facts</h2>
+        {brief?.product && <p><span className="text-slate-600">Promoting: </span><b>{brief.product}</b></p>}
+        {brief?.offer && <p><span className="text-slate-600">Deal: </span><b>{brief.offer}</b></p>}
+        {brief?.highlights && <p><span className="text-slate-600">What makes you special: </span><b>{brief.highlights}</b></p>}
         <div className="grid grid-cols-2 gap-1 text-xs">
-          {Object.entries(offer).filter(([, v]) => v && !(Array.isArray(v) && !v.length)).map(([k, v]) => (
-            <div key={k}><span className="text-slate-600">{k}: </span><b>{String(v)}</b></div>))}
+          {factRows(offer).map((row) => (
+            <div key={row.label}><span className="text-slate-600">{row.label}: </span><b>{row.value}</b></div>))}
         </div>
-        <h2 className="pt-2 font-semibold">Nearby places {loc.verified && <Badge tone="green">verified · {loc.data_source}</Badge>}</h2>
+        <h2 className="pt-2 font-semibold">Near {name} {loc.verified && <Badge tone="green">verified · {loc.data_source}</Badge>}</h2>
         <LocalityMap locality={loc} businessName={campaign.brain.business?.name} />
         <ul className="space-y-1 text-xs">
           {loc.signals.map((sg, i) => <li key={i}><b>{sg.count} {sg.type}</b> nearby{sg.examples.length ? ` (${sg.examples.slice(0, 2).join(", ")})` : ""}{sg.nearest_m ? `, nearest ${sg.nearest_m} m` : ""}</li>)}
@@ -257,7 +348,7 @@ function StrategyTab({ campaign, onChanged }: { campaign: CampaignT; onChanged: 
   );
 }
 
-function CreativesTab({ assets, generating, awaitingPlan, onOpen }: { assets: Asset[]; generating: boolean; awaitingPlan: boolean; onOpen: (asset: Asset) => void }) {
+function CreativesTab({ assets, generating, awaitingPlan, product, languageLine, onOpen }: { assets: Asset[]; generating: boolean; awaitingPlan: boolean; product: string; languageLine: string; onOpen: (asset: Asset) => void }) {
   const languages = [...new Set(assets.map((a) => a.language))];
   const [language, setLanguage] = useState(languages[0] ?? "en");
   const [all, setAll] = useState(false);
@@ -276,8 +367,8 @@ function CreativesTab({ assets, generating, awaitingPlan, onOpen }: { assets: As
         {generating
           ? "Your creatives are being written, designed and fact-checked. They appear here as soon as they're ready."
           : awaitingPlan
-            ? "Accept the plan first. The creatives show up here after that."
-            : "Creatives show up here after the plan is accepted."}
+            ? `Accept the plan and ${product} will show up here in ${languageLine}.`
+            : `Accept the plan and ${product} will show up here in ${languageLine}.`}
       </Card>
     );
   }
@@ -336,19 +427,19 @@ function CreativeCard({ asset: a, onZoom, onOpen }: { asset: Asset; onZoom: (z: 
   const source = a.content.media_source;
   return (
     <Card compact className="flex flex-col gap-2 text-sm">
-      <div className="flex items-center gap-2">
-        <b>{FORMAT_NAMES[a.format] ?? a.format}</b>
-        <span className="text-xs capitalize text-slate-600">{a.platform} · {a.variant}</span>
+      <div className="flex items-start gap-2">
+        <div className="text-base font-semibold">{a.content.headline || (a.format === "message" ? String(a.content.body ?? "").split("\n")[0] : FORMAT_NAMES[a.format] ?? a.format)}</div>
         <span className="ml-auto"><Badge tone={statusTone(a.status)}>{statusLabel(a.status)}</Badge></span>
       </div>
+      <div className="text-xs text-slate-600">{FORMAT_NAMES[a.format] ?? a.format} · {cap(a.platform)}</div>
       {src ? (
         <button type="button" onClick={() => onZoom({ src, title })}
           className={`flex items-center justify-center overflow-hidden rounded-lg bg-slate-100 ${focusCls} ${tall ? "h-96" : "h-72"}`}>
           <img src={src} alt={title} className="h-full w-auto object-contain" />
         </button>
       ) : a.format === "message" ? (
-        <div className="rounded-lg bg-[#e5ddd5] p-3">
-          <div className="ml-auto max-w-[90%] whitespace-pre-wrap rounded-lg bg-[#dcf8c6] p-2 text-xs shadow">{String(a.content.body ?? "")}</div>
+        <div className="rounded-lg bg-slate-100 p-3">
+          <div className="ml-auto max-w-[90%] whitespace-pre-wrap rounded-lg bg-emerald-50 p-2 text-xs text-slate-900 shadow">{String(a.content.body ?? "")}</div>
         </div>
       ) : (
         <div className="flex h-40 items-center justify-center rounded-lg bg-slate-100 px-3 text-center text-xs text-slate-600">
@@ -370,7 +461,6 @@ function CreativeCard({ asset: a, onZoom, onOpen }: { asset: Asset; onZoom: (z: 
         </ol>
       )}
       <div className="text-xs">
-        {a.content.headline && <div className="font-semibold">{a.content.headline}</div>}
         {a.format !== "message" && a.content.body && <div className="line-clamp-3 text-slate-600">{a.content.body}</div>}
         {a.content.cta && <div className="mt-1 text-brand-700">→ {a.content.cta}</div>}
       </div>
@@ -378,7 +468,7 @@ function CreativeCard({ asset: a, onZoom, onOpen }: { asset: Asset; onZoom: (z: 
       <div className="mt-auto flex flex-wrap items-center gap-2 pt-1 text-xs">
         {src && <a href={src} download className={`rounded border border-slate-500 px-2 py-1 hover:bg-slate-50 ${focusCls}`}>Download</a>}
         {slides.length > 1 && <span className="text-slate-600">slide {slide + 1}/{slides.length}</span>}
-        <button type="button" onClick={onOpen} className={`text-brand-700 underline ${focusCls}`}>Edit copy</button>
+        <Button kind="ghost" small onClick={onOpen}>Edit copy</Button>
         {source && <span className="ml-auto text-slate-600">{source === "storyboard" ? "Animated storyboard" : source === "composed" ? "Composed design" : "AI generated"}</span>}
       </div>
     </Card>
@@ -390,7 +480,7 @@ function assetText(a: Asset): string {
   return [c.headline, c.hook, c.body, c.cta, ...(c.slides ?? []), ...(c.hashtags ?? [])].filter(Boolean).join("\n\n");
 }
 
-function ContentTab({ assets, focus, onChanged }: { assets: Asset[]; focus: Focus | null; onChanged: () => void }) {
+function ContentTab({ campaign, assets, focus, onChanged }: { campaign: CampaignT; assets: Asset[]; focus: Focus | null; onChanged: () => void }) {
   const [platform, setPlatform] = useState(focus?.platform ?? assets[0]?.platform ?? "");
   const [language, setLanguage] = useState(focus?.language ?? assets[0]?.language ?? "");
   useEffect(() => {
@@ -411,13 +501,13 @@ function ContentTab({ assets, focus, onChanged }: { assets: Asset[]; focus: Focu
         {languages.map((l) => <button key={l} type="button" onClick={() => setLanguage(l)} className={`rounded-lg px-2.5 py-1 ${focusCls} ${l === language ? selectedCls : idleCls}`}>{LANGUAGES[l] ?? l}</button>)}
       </div>
       <div className="grid gap-3 md:grid-cols-2">
-        {shown.map((a) => <AssetCard key={a.id} asset={a} onChanged={onChanged} />)}
+        {shown.map((a) => <AssetCard key={a.id} asset={a} campaign={campaign} onChanged={onChanged} />)}
       </div>
     </div>
   );
 }
 
-function AssetCard({ asset, onChanged }: { asset: Asset; onChanged: () => void }) {
+function AssetCard({ asset, campaign, onChanged }: { asset: Asset; campaign: CampaignT; onChanged: () => void }) {
   const [editing, setEditing] = useState(false);
   const [body, setBody] = useState(String(asset.content.body ?? ""));
   const [error, setError] = useState<unknown>(null);
@@ -439,6 +529,9 @@ function AssetCard({ asset, onChanged }: { asset: Asset; onChanged: () => void }
         <div className="flex gap-1 overflow-auto">{asset.content.slide_urls!.map((u, i) => <img key={i} src={u} alt="" className="h-24 rounded" />)}</div>
       )}
       {asset.media_status === "failed" && <p className="text-xs text-red-700">The picture didn't come through. The copy below is still yours.</p>}
+      <p className="rounded-lg bg-brand-50 px-3 py-2 text-xs text-slate-900">
+        Must match: {offerLine(campaign.brain.brief, campaign.brain.offer)} · {LANGUAGES[asset.language] ?? asset.language} · {cap(asset.platform)}
+      </p>
       {editing ? (
         <textarea className={`${inputCls} text-xs`} rows={5} value={body} onChange={(e) => setBody(e.target.value)} />
       ) : (
@@ -462,13 +555,10 @@ function AssetCard({ asset, onChanged }: { asset: Asset; onChanged: () => void }
 
 function LocalizationTab({ assets }: { assets: Asset[] }) {
   const localized = assets.filter((a) => a.language !== "en" && a.is_selected);
-  const onlyEnglish = assets.length > 0 && assets.every((a) => a.language === "en");
   if (!localized.length) {
     return (
       <p className="text-sm text-slate-600">
-        {onlyEnglish
-          ? "No translation yet. Add a language besides English on the plan, or this campaign stays in English."
-          : "No translation yet. Add a language besides English, or wait until the creatives finish."}
+        {`This campaign is in ${langList([...new Set(assets.map((a) => a.language))]) || "English"}. Add another language on the plan if you want a translation.`}
       </p>
     );
   }
@@ -477,7 +567,8 @@ function LocalizationTab({ assets }: { assets: Asset[] }) {
       {localized.map((a) => (
         <Card key={a.id} className="grid gap-3 text-sm md:grid-cols-2">
           <div>
-            <div className="mb-1 text-xs text-slate-600">{a.platform} · {a.format} · {LANGUAGES[a.language] ?? a.language} · fit {a.content.localization?.score ?? "—"}</div>
+            <div className="mb-1 text-sm font-semibold">{FORMAT_NAMES[a.format] ?? a.format} in {LANGUAGES[a.language] ?? a.language} for {cap(a.platform)}</div>
+            <div className="mb-1 text-xs text-slate-600">fit {a.content.localization?.score ?? "—"}</div>
             <pre className="whitespace-pre-wrap font-sans text-xs">{assetText(a)}</pre>
             {a.cultural_notes && <p className="mt-2 text-xs text-slate-600">Cultural notes: {a.cultural_notes}</p>}
           </div>
@@ -501,7 +592,8 @@ function TruthTab({ assets, onOpen }: { assets: Asset[]; onOpen: (asset: Asset) 
       {selected.map((a) => (
         <Card key={a.id} className="flex flex-wrap items-start justify-between gap-2 text-sm">
           <div>
-            <b className="capitalize">{a.platform} {a.format}</b> · {LANGUAGES[a.language] ?? a.language}
+            <b className="capitalize">{cap(a.platform)} · {FORMAT_NAMES[a.format] ?? a.format}</b> · {LANGUAGES[a.language] ?? a.language}
+            {a.content.headline && <div className="font-medium">{a.content.headline}</div>}
             <div className="text-xs text-slate-600">score {a.verification.score ?? "—"} · attempts {a.attempts}</div>
             <ul className="mt-1 text-xs text-red-700">
               {(a.verification.issues ?? []).map((iss, i) => <li key={i}>{iss.severity}: {iss.detail}</li>)}
@@ -531,6 +623,7 @@ function PerformanceTab({ campaign }: { campaign: CampaignT }) {
         <Score label="Fact-check score" value={s?.truth?.avg_score ?? null} />
       </div>
       <p className="text-sm text-amber-800">These are estimates made before publishing, not measured results. Results show the numbers from the platforms after something is published.</p>
+      <p className="text-sm text-slate-600">{offerLine(campaign.brain.brief, campaign.brain.offer)} · {productOf(campaign)}</p>
       <div className="grid gap-2">
         {selected.map((a) => (
           <Card key={a.id} className="flex items-center justify-between text-sm">
@@ -572,15 +665,24 @@ function ApprovalTab({ campaign, onChanged, onApproved }: { campaign: CampaignT;
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <Card className="space-y-2 text-sm">
-        <h2 className="font-semibold">Owner approval</h2>
+        <h2 className="font-semibold">Approve {productOf(campaign)} for {shopOf(campaign)}</h2>
+        <p>{offerLine(campaign.brain.brief, campaign.brain.offer)}</p>
+        <p className="text-slate-600">{langList(campaign.brain.strategy?.languages) || "No languages yet"} · {(campaign.brain.strategy?.platforms ?? []).map(cap).join(", ") || "No platforms yet"}</p>
         <p>Status: <Badge tone={statusTone(campaign.brain.approval.status)}>{statusLabel(campaign.brain.approval.status)}</Badge>
           {campaign.brain.approval.by && <span className="text-xs text-slate-600"> by {campaign.brain.approval.by}</span>}</p>
         <p className="text-xs text-slate-600">{campaign.summary?.verified ?? 0} verified, {campaign.summary?.failed ?? 0} failed, {campaign.summary?.stale ?? 0} out of date.</p>
-        {canApprove && campaign.status !== "approved" && <Button disabled={busy !== null} onClick={approve}>{busy === "approve" ? "Approving…" : "Approve all verified assets"}</Button>}
+        {canApprove && campaign.status !== "approved" && <Button disabled={busy !== null} onClick={approve}>{busy === "approve" ? "Approving…" : `Approve ${campaign.summary?.selected_assets ?? 0} posts`}</Button>}
         <ErrorNote error={error} />
       </Card>
       <Card className="space-y-2 text-sm">
-        <h2 className="font-semibold">Change a locked fact</h2>
+        <h2 className="font-semibold">Your facts</h2>
+        {campaign.brain.brief?.product && <p><span className="text-slate-600">Promoting: </span><b>{campaign.brain.brief.product}</b></p>}
+        {campaign.brain.brief?.highlights && <p><span className="text-slate-600">What makes you special: </span><b>{campaign.brain.brief.highlights}</b></p>}
+        <div className="grid grid-cols-2 gap-1 text-xs">
+          {factRows(campaign.brain.offer).map((row) => (
+            <div key={row.label}><span className="text-slate-600">{row.label}: </span><b>{row.value}</b></div>))}
+        </div>
+        <h2 className="pt-2 font-semibold">Change a locked fact</h2>
         <p className="text-xs text-slate-600">This starts a new version and rewrites only the pieces that use this fact.</p>
         <Field label="Discount">
           <input className={inputCls} value={discount} onChange={(e) => setDiscount(e.target.value)} />
@@ -617,7 +719,7 @@ function PublishingTab({ campaign, notice, onGoto }: { campaign: CampaignT; noti
         {!accounts.isLoading && !accounts.isError && connected.length === 0 && (
           <p>Connect an account first, or <Link className="text-brand-700 underline" to="/accounts">add a simulated one</Link>. Simulated posts are labelled and never go live.</p>
         )}
-        {connected.length > 0 && <div>Connected accounts: {connected.map((a) => `${a.display_name}${a.simulated ? " (simulated)" : ""}`).join(", ")}</div>}
+        {connected.length > 0 && <div>{productOf(campaign)} will go to {connected.map((a) => `${a.display_name}${a.simulated ? " (simulated)" : ""}`).join(", ")}.</div>}
         <div className="flex flex-wrap items-center gap-2">
           <label className="text-xs text-slate-600">
             Schedule
@@ -628,7 +730,7 @@ function PublishingTab({ campaign, notice, onGoto }: { campaign: CampaignT; noti
         {!approved && (
           <p className="text-sm text-amber-800">
             Publishing stays off until you approve.{" "}
-            <button type="button" className={`text-brand-700 underline ${focusCls}`} onClick={() => onGoto("approval")}>Go to Approve</button>
+            <Button kind="ghost" small onClick={() => onGoto("approval")}>Go to Approve</Button>
           </p>
         )}
         <ErrorNote error={error} />

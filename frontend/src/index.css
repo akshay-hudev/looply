@@ -2,4 +2,68 @@
 @tailwind components;
 @tailwind utilities;
 
-body { font-family: system-ui, sans-serif; }
+body {
+  font-family: system-ui, sans-serif;
+  transition: background-color 150ms linear, color 150ms linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body { transition: none; }
+}
+
+/* Night surfaces for the same components. Orange, radius, and filled buttons stay. */
+.dark { color-scheme: dark; }
+
+.dark .bg-white { background-color: #0f0f0f; }
+.dark .bg-slate-50 { background-color: #0a0a0a; }
+.dark .bg-slate-100 { background-color: #1a1a1a; }
+.dark .bg-slate-200,
+.dark .disabled\:bg-slate-200:disabled { background-color: #262626; }
+
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-700 { color: #fafafa; }
+.dark .text-slate-600,
+.dark .text-slate-500,
+.dark .disabled\:text-slate-600:disabled { color: #a3a3a3; }
+
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-b-white { border-color: #262626; }
+.dark .border-b-white { border-bottom-color: #0f0f0f; }
+.dark .border-slate-300,
+.dark .border-slate-500 { border-color: #737373; }
+
+.dark .text-brand-700 { color: #fdba74; }
+.dark .bg-brand-50,
+.dark .hover\:bg-brand-50:hover { background-color: #2a140c; }
+.dark .bg-brand-100 { background-color: #3a1c0c; }
+
+.dark .bg-amber-50,
+.dark .bg-amber-100 { background-color: #451a03; }
+.dark .text-amber-800,
+.dark .text-amber-700 { color: #fde68a; }
+.dark .border-amber-300 { border-color: #d97706; }
+
+.dark .bg-red-50,
+.dark .bg-red-100 { background-color: #450a0a; }
+.dark .text-red-800,
+.dark .text-red-700,
+.dark .text-red-600 { color: #fca5a5; }
+
+.dark .bg-sky-50,
+.dark .bg-sky-100 { background-color: #082f49; }
+.dark .text-sky-800 { color: #bae6fd; }
+
+.dark .bg-emerald-50,
+.dark .bg-emerald-100 { background-color: #022c22; }
+.dark .text-emerald-800,
+.dark .text-emerald-700 { color: #a7f3d0; }
+.dark .border-emerald-100 { border-color: #064e3b; }
+
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-200:hover { background-color: #262626; }
+.dark .hover\:text-slate-800:hover { color: #fafafa; }
+.dark .shadow-sm { box-shadow: none; }
+.dark .placeholder\:text-slate-500::placeholder { color: #a3a3a3; }
+.dark .focus-visible\:outline-brand-700:focus-visible { outline-color: #fb923c; }

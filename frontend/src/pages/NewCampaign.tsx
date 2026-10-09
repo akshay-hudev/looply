@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { ReactNode, useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { api } from "../lib/api";
 import { Brief, Business, LANGUAGES, PLATFORMS } from "../lib/types";
@@ -25,10 +25,26 @@ const AUDIENCES = ["College students", "Young professionals", "Families", "Offic
 const GOALS = ["Make people aware we exist", "More walk-in visits", "More orders / enquiries", "Fill the weekend",
   "Promote an offer", "Launch something new"];
 const TONES = ["Fun & youthful", "Warm & friendly", "Premium & elegant", "Bold & energetic", "Calm & trustworthy"];
-const STEPS = ["Business", "The essentials", "Extra details", "Formats & languages", "Review"];
+const STEPS = ["Your shop", "The promotion", "Who it's for", "Where it goes", "Check this"];
+
+function offerLine(brief: Brief): string {
+  const typed = brief.offer?.trim();
+  if (typed) return typed;
+  return "No price or deal. We won't invent one.";
+}
+function langList(codes: string[]) {
+  return codes.map((c) => LANGUAGES[c] ?? c).join(", ");
+}
+function cap(s: string) {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+type CampaignStart = { business_id: string | null; region: string | null; languages: string[]; note: string | null };
 
 export default function NewCampaign() {
   const nav = useNavigate();
+  const [params] = useSearchParams();
+  const learningId = params.get("learning") ?? "";
   const businesses = useQuery({ queryKey: ["businesses"], queryFn: () => api.get<Business[]>("/businesses") });
   const [step, setStep] = useState(0);
   const [businessId, setBusinessId] = useState("");
@@ -41,6 +57,18 @@ export default function NewCampaign() {
   const [allowBlank, setAllowBlank] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  const applied = useRef("");
+
+  const start = useQuery({
+    queryKey: ["campaign-start", businessId, learningId],
+    queryFn: () => {
+      const q = new URLSearchParams();
+      if (businessId) q.set("business_id", businessId);
+      if (learningId) q.set("learning", learningId);
+      const s = q.toString();
+      return api.get<CampaignStart>(`/campaigns/start${s ? `?${s}` : ""}`);
+    },
+  });
 
   const biz = businesses.data?.find((b) => b.id === businessId);
   useEffect(() => {
@@ -50,12 +78,24 @@ export default function NewCampaign() {
     if (biz && !brief.region) setBrief((b) => ({ ...b, region: [biz.address, biz.city].filter(Boolean).join(", ") || undefined }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [biz?.id]);
+  useEffect(() => {
+    const data = start.data;
+    if (!data?.business_id) return;
+    const key = `${data.business_id}|${businessId}|${learningId}|${data.region ?? ""}|${data.languages.join(",")}|${data.note ?? ""}`;
+    if (applied.current === key) return;
+    applied.current = key;
+    if (!businessId) setBusinessId(data.business_id);
+    if (data.region) setBrief((b) => ({ ...b, region: data.region || undefined }));
+    if (data.languages.length) setLanguages(data.languages);
+    if (data.note) setMessage((m) => m || data.note || "");
+  }, [start.data, businessId, learningId]);
 
   const set = (k: keyof Brief) => (v: string) => setBrief((b) => ({ ...b, [k]: v || undefined }));
   const chosen = Object.fromEntries(Object.entries(formats).filter(([, v]) => v.length));
   const formatsReady = mode === "ai" || Object.keys(chosen).length > 0;
-  const canNext = [!!businessId, true, true, formatsReady && languages.length > 0, true][step];
-  const blankProduct = !brief.product?.trim();
+  const named = !!brief.product?.trim();
+  const canNext = [!!businessId, named || allowBlank, true, formatsReady && languages.length > 0, true][step];
+  const product = brief.product?.trim();
 
   function toggleFormat(platform: string, fmt: string) {
     const cur = formats[platform] ?? [];
@@ -75,171 +115,211 @@ export default function NewCampaign() {
     } catch (err) { setError(err); } finally { setBusy(false); }
   }
 
+  const nextLabel = [
+    biz ? `Continue with ${biz.name}` : "Continue",
+    "Save this promotion",
+    "Choose where it goes",
+    product ? `Review ${product}` : "Review this",
+  ][step];
+
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
-      <DocumentTitle title="New campaign" />
-      <h1 className="text-2xl font-bold">New campaign</h1>
+    <div className="mx-auto max-w-5xl space-y-4">
+      <DocumentTitle title={biz?.name ?? "New campaign"} />
+      <div>
+        <h1 className="text-2xl font-bold">{biz?.name ?? "New campaign"}</h1>
+        {biz && <p className="text-sm text-slate-600">{[biz.category, biz.city].filter(Boolean).join(" · ")}</p>}
+      </div>
       <Stepper steps={STEPS} step={step} onJump={(i) => i < step && setStep(i)} />
 
-      {step === 0 && (
-        <Card className="space-y-3">
-          <StepTitle title="Which business is this for?" hint="We use its name, category and location to write the copy." />
-          {businesses.isLoading ? <p className="text-sm text-slate-600">Loading businesses</p>
-            : businesses.isError ? <ErrorNote error={new Error("Couldn't load your businesses. Try again.")} />
-            : (businesses.data ?? []).length === 0 ? (
-            <p className="text-sm text-amber-800">A campaign needs a business, the place you're promoting. <Link className="underline" to="/businesses/new">Add a business</Link>.</p>
-          ) : (
-            <div className="grid gap-2 sm:grid-cols-2">
-              {(businesses.data ?? []).map((b) => (
-                <button key={b.id} type="button" onClick={() => setBusinessId(b.id)}
-                  className={`rounded-xl border p-3 text-left ${businessId === b.id ? "border-brand-600 bg-brand-50 ring-1 ring-brand-600" : "border-slate-200 hover:bg-slate-50"}`}>
-                  <div className="font-semibold">{b.name}</div>
-                  <div className="text-xs text-slate-500">{[b.category, b.city].filter(Boolean).join(" · ") || "No details yet"}</div>
-                </button>
-              ))}
-            </div>
+      <div className={step > 0 ? "grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]" : ""}>
+        <div className="space-y-4">
+          {step === 0 && (
+            <Card className="space-y-3">
+              <StepTitle title="Which shop is this for?" hint="The name, category, and city stay with you through every step." />
+              {businesses.isLoading ? <p className="text-sm text-slate-600">Loading businesses</p>
+                : businesses.isError ? <ErrorNote error={new Error("Couldn't load your businesses. Try again.")} />
+                : (businesses.data ?? []).length === 0 ? (
+                <p className="text-sm text-amber-800">A campaign needs a business, the place you're promoting. <Link className="underline" to="/businesses/new">Add a business</Link>.</p>
+              ) : (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {(businesses.data ?? []).map((b) => (
+                    <button key={b.id} type="button" onClick={() => setBusinessId(b.id)}
+                      className={`rounded-xl border p-3 text-left ${focusCls} ${businessId === b.id ? "border-brand-600 bg-brand-50 ring-1 ring-brand-600" : "border-slate-200 hover:bg-slate-50"}`}>
+                      <div className="font-semibold">{b.name}</div>
+                      <div className="text-xs text-slate-500">{[b.category, b.city].filter(Boolean).join(" · ") || "No details yet"}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <Link to="/businesses/new"><Button kind="ghost" small>+ Add another business</Button></Link>
+            </Card>
           )}
-          <Link to="/businesses/new" className="text-xs text-brand-700 underline">+ Add another business</Link>
-        </Card>
-      )}
 
-      {step === 1 && (
-        <Card className="space-y-4">
-          <StepTitle title="Tell us the basics" hint="Short answers are fine. Even one or two words are enough: we fill in the creative side." />
-          <Field label="What are you promoting?">
-            <input className={inputCls} value={brief.product ?? ""} onChange={(e) => set("product")(e.target.value)}
-              placeholder={`e.g. our new continental menu, ${biz?.name ?? "the business"} itself, a cold coffee`} />
-          </Field>
-          <Field label="Who is it for?">
-            <input className={inputCls} value={brief.audience ?? ""} onChange={(e) => set("audience")(e.target.value)}
-              placeholder="e.g. college students, families nearby" />
-          </Field>
-          <Chips options={AUDIENCES} value={brief.audience} onPick={set("audience")} />
-          <Field label="Where? (area, city)">
-            <input className={inputCls} value={brief.region ?? ""} onChange={(e) => set("region")(e.target.value)}
-              placeholder="e.g. Indiranagar, Bengaluru" />
-          </Field>
-          <Field label="What do you want to achieve?">
-            <input className={inputCls} value={brief.goal ?? ""} onChange={(e) => set("goal")(e.target.value)}
-              placeholder="e.g. make people aware we exist" />
-          </Field>
-          <Chips options={GOALS} value={brief.goal} onPick={set("goal")} />
-        </Card>
-      )}
-
-      {step === 2 && (
-        <Card className="space-y-4">
-          <StepTitle title="Anything extra? (optional)"
-            hint="Only facts you enter here will appear as offers, prices or dates. We never make them up." />
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Offer or price">
-              <input className={inputCls} value={brief.offer ?? ""} onChange={(e) => set("offer")(e.target.value)} placeholder="e.g. 20% off, ₹149" />
-            </Field>
-            <Field label="Occasion">
-              <input className={inputCls} value={brief.occasion ?? ""} onChange={(e) => set("occasion")(e.target.value)} placeholder="e.g. grand opening, Diwali, this weekend" />
-            </Field>
-            <Field label="Date">
-              <input type="date" className={inputCls} value={brief.event_date ?? ""} onChange={(e) => set("event_date")(e.target.value)} />
-            </Field>
-            <Field label="What makes you special?">
-              <input className={inputCls} value={brief.highlights ?? ""} onChange={(e) => set("highlights")(e.target.value)} placeholder="e.g. wood-fired oven, rooftop seating" />
-            </Field>
-          </div>
-          <div>
-            <div className="mb-1 text-sm font-medium text-slate-700">Tone</div>
-            <Chips options={TONES} value={brief.tone} onPick={set("tone")} />
-          </div>
-          <Field label="Anything else, in your own words (or speak it)">
-            <textarea className={inputCls} rows={3} value={message} onChange={(e) => setMessage(e.target.value)}
-              placeholder="We just opened, we want more people to know about us…" />
-          </Field>
-          <VoiceButton onText={(t) => setMessage((m) => (m ? `${m} ${t}` : t))} />
-        </Card>
-      )}
-
-      {step === 3 && (
-        <Card className="space-y-4">
-          <StepTitle title="What should we create?" hint="Each format gets a ready-to-view creative: posters, story cards, carousels and reel storyboards." />
-          <div className="flex gap-2 text-sm">
-            <Toggle on={mode === "user"} onClick={() => setMode("user")}>I'll choose</Toggle>
-            <Toggle on={mode === "ai"} onClick={() => setMode("ai")}>Let the AI decide</Toggle>
-          </div>
-          {mode === "user" && (
-            <>
-              <div className="flex flex-wrap gap-2">
-                {PRESETS.map((p) => (
-                  <button key={p.label} type="button" onClick={() => setFormats(p.formats)}
-                    className="rounded-full border border-slate-300 px-3 py-1 text-xs hover:bg-slate-50">{p.label}</button>
-                ))}
+          {step === 1 && (
+            <Card className="space-y-4">
+              <StepTitle title={`What is ${biz?.name ?? "this shop"} promoting?`} hint="The offer, date, and what makes you special stay locked. We never invent a price." />
+              <Field label="What are you promoting?">
+                <input className={inputCls} value={brief.product ?? ""} onChange={(e) => set("product")(e.target.value)}
+                  placeholder={`e.g. our new continental menu, ${biz?.name ?? "the business"} itself, a cold coffee`} />
+              </Field>
+              {!named && (
+                <div className="space-y-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  <p>Name what you're promoting, or the draft stays general. No offer or price will be invented.</p>
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={allowBlank} onChange={(e) => setAllowBlank(e.target.checked)} />
+                    Continue without naming it
+                  </label>
+                </div>
+              )}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Offer or price">
+                  <input className={inputCls} value={brief.offer ?? ""} onChange={(e) => set("offer")(e.target.value)} placeholder="e.g. 20% off, ₹149" />
+                </Field>
+                <Field label="Occasion">
+                  <input className={inputCls} value={brief.occasion ?? ""} onChange={(e) => set("occasion")(e.target.value)} placeholder="e.g. grand opening, Diwali, this weekend" />
+                </Field>
+                <Field label="Date">
+                  <input type="date" className={inputCls} value={brief.event_date ?? ""} onChange={(e) => set("event_date")(e.target.value)} />
+                </Field>
+                <Field label="What makes you special?">
+                  <input className={inputCls} value={brief.highlights ?? ""} onChange={(e) => set("highlights")(e.target.value)} placeholder="e.g. wood-fired oven, rooftop seating" />
+                </Field>
               </div>
-              <div className="grid gap-2">
-                {PLATFORMS.map((p) => (
-                  <div key={p} className="flex flex-wrap items-center gap-2 text-sm">
-                    <span className="w-24 font-medium capitalize">{p}</span>
-                    {FORMAT_CATALOG[p].map((f) => (
-                      <Toggle key={f} small on={(formats[p] ?? []).includes(f)} onClick={() => toggleFormat(p, f)}>
-                        {FORMAT_LABELS[f]}
-                      </Toggle>
+            </Card>
+          )}
+
+          {step === 2 && (
+            <Card className="space-y-4">
+              <StepTitle title={product ? `Who is ${product} for?` : "Who is this for?"} hint={`${biz?.name ?? "The shop"} already has a place. Say who should see it, and how it should sound.`} />
+              <Field label="Who is it for?">
+                <input className={inputCls} value={brief.audience ?? ""} onChange={(e) => set("audience")(e.target.value)}
+                  placeholder="e.g. college students, families nearby" />
+              </Field>
+              <Chips options={AUDIENCES} value={brief.audience} onPick={set("audience")} />
+              <Field label="What do you want to achieve?">
+                <input className={inputCls} value={brief.goal ?? ""} onChange={(e) => set("goal")(e.target.value)}
+                  placeholder="e.g. make people aware we exist" />
+              </Field>
+              <Chips options={GOALS} value={brief.goal} onPick={set("goal")} />
+              <div>
+                <div className="mb-1 text-sm font-medium text-slate-700">Tone</div>
+                <Chips options={TONES} value={brief.tone} onPick={set("tone")} />
+              </div>
+              <Field label="Where? (area, city)">
+                <input className={inputCls} value={brief.region ?? ""} onChange={(e) => set("region")(e.target.value)}
+                  placeholder="e.g. Indiranagar, Bengaluru" />
+              </Field>
+              <details className="rounded-lg bg-slate-50 px-3 py-2">
+                <summary className="cursor-pointer text-sm font-medium text-slate-700">Add a note in your own words</summary>
+                <div className="mt-3 space-y-2">
+                  <textarea className={inputCls} rows={3} value={message} onChange={(e) => setMessage(e.target.value)}
+                    aria-label="Anything else, in your own words"
+                    placeholder="We just opened, we want more people to know about us…" />
+                  <VoiceButton onText={(t) => setMessage((m) => (m ? `${m} ${t}` : t))} />
+                </div>
+              </details>
+            </Card>
+          )}
+
+          {step === 3 && (
+            <Card className="space-y-4">
+              <StepTitle title="What should we create?"
+                hint={`${product || "This promotion"} for ${biz?.name ?? "your shop"}, in ${langList(languages) || "a language you choose"}.`} />
+              <div className="flex gap-2 text-sm">
+                <Toggle on={mode === "user"} onClick={() => setMode("user")}>I'll choose</Toggle>
+                <Toggle on={mode === "ai"} onClick={() => setMode("ai")}>Let the AI decide</Toggle>
+              </div>
+              {mode === "user" && (
+                <>
+                  <div className="flex flex-wrap gap-2">
+                    {PRESETS.map((p) => (
+                      <button key={p.label} type="button" onClick={() => setFormats(p.formats)}
+                        className={`rounded-full border border-slate-300 px-3 py-1 text-xs hover:bg-slate-50 ${focusCls}`}>{p.label}</button>
                     ))}
                   </div>
-                ))}
+                  <div className="grid gap-2">
+                    {PLATFORMS.map((p) => (
+                      <div key={p} className="flex flex-wrap items-center gap-2 text-sm">
+                        <span className="w-24 font-medium capitalize">{p}</span>
+                        {FORMAT_CATALOG[p].map((f) => (
+                          <Toggle key={f} small on={(formats[p] ?? []).includes(f)} onClick={() => toggleFormat(p, f)}>
+                            {FORMAT_LABELS[f]}
+                          </Toggle>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+              <div>
+                <div className="mb-1 text-sm font-medium">Languages</div>
+                {languages.length === 0 && <p className="mb-1 text-xs text-amber-800">Choose at least one language.</p>}
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(LANGUAGES).map(([code, name]) => (
+                    <Toggle key={code} small on={languages.includes(code)}
+                      onClick={() => setLanguages(languages.includes(code) ? languages.filter((l) => l !== code) : [...languages, code])}>
+                      {name}
+                    </Toggle>
+                  ))}
+                </div>
               </div>
-            </>
+            </Card>
           )}
-          <div>
-            <div className="mb-1 text-sm font-medium">Languages</div>
-            {languages.length === 0 && <p className="mb-1 text-xs text-amber-800">Choose at least one language.</p>}
-            <div className="flex flex-wrap gap-2">
-              {Object.entries(LANGUAGES).map(([code, name]) => (
-                <Toggle key={code} small on={languages.includes(code)}
-                  onClick={() => setLanguages(languages.includes(code) ? languages.filter((l) => l !== code) : [...languages, code])}>
-                  {name}
-                </Toggle>
-              ))}
-            </div>
-          </div>
-        </Card>
-      )}
 
-      {step === 4 && (
-        <Card className="space-y-3">
-          <StepTitle title="Ready to generate" hint="Check the details, then we write, design, fact-check and score everything." />
-          <dl className="grid grid-cols-1 gap-y-1 text-sm sm:grid-cols-[9rem_1fr]">
-            <Row k="Business" v={biz?.name} />
-            <Row k="Promoting" v={brief.product} />
-            <Row k="Audience" v={brief.audience} />
-            <Row k="Region" v={brief.region} />
-            <Row k="Goal" v={brief.goal} />
-            <Row k="Offer" v={brief.offer} empty="None, so no deal or price will be mentioned" />
-            <Row k="Occasion" v={[brief.occasion, brief.event_date].filter(Boolean).join(" · ")} empty="None" />
-            <Row k="Tone" v={brief.tone} />
-            <Row k="Notes" v={message} />
-            <Row k="Formats" v={mode === "ai" ? "AI decides" : Object.entries(chosen).map(([p, f]) => `${p}: ${f.map((x) => FORMAT_LABELS[x]).join(", ")}`).join(" · ")} />
-            <Row k="Languages" v={languages.map((l) => LANGUAGES[l]).join(", ")} />
-          </dl>
-          {blankProduct && (
-            <div className="space-y-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              <p>You haven't named what you're promoting. The draft will stay general, and no offer or price will be invented.</p>
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked={allowBlank} onChange={(e) => setAllowBlank(e.target.checked)} />
-                Continue without naming it
+          {step === 4 && (
+            <Card className="space-y-3">
+              <StepTitle title="Check this" hint="These are the facts the posts have to match." />
+              <div>
+                <p className="text-lg font-semibold">{product || "This promotion"} for {biz?.name}</p>
+                <p className="text-sm text-slate-600">{offerLine(brief)} · {brief.audience || "customers nearby"} · {langList(languages)}</p>
+              </div>
+              <dl className="grid grid-cols-1 gap-y-1 text-sm sm:grid-cols-[9rem_1fr]">
+                <Row k="Occasion" v={[brief.occasion, brief.event_date].filter(Boolean).join(" · ")} />
+                <Row k="What makes you special" v={brief.highlights} />
+                <Row k="Goal" v={brief.goal} />
+                <Row k="Tone" v={brief.tone} />
+                <Row k="Where" v={brief.region} />
+                <Row k="Notes" v={message} />
+                <Row k="Formats" v={mode === "ai" ? "AI decides" : Object.entries(chosen).map(([p, f]) => `${cap(p)}: ${f.map((x) => FORMAT_LABELS[x]).join(", ")}`).join(" · ")} />
+              </dl>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={skipReview} onChange={(e) => setSkipReview(e.target.checked)} />
+                Go straight to creatives (skip the plan review)
               </label>
-            </div>
+              <ErrorNote error={error} />
+            </Card>
           )}
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={skipReview} onChange={(e) => setSkipReview(e.target.checked)} />
-            Go straight to creatives (skip the plan review)
-          </label>
-          <ErrorNote error={error} />
-        </Card>
-      )}
 
-      <div className="flex justify-between">
-        <Button kind="ghost" disabled={step === 0} onClick={() => setStep(step - 1)}>← Back</Button>
-        {step < STEPS.length - 1
-          ? <Button disabled={!canNext} onClick={() => setStep(step + 1)}>Next →</Button>
-          : <Button disabled={busy || !businessId || (blankProduct && !allowBlank)} onClick={submit}>{busy ? "Starting…" : <><span aria-hidden="true">✨ </span>Generate creatives</>}</Button>}
+          <div className="flex justify-between">
+            <Button kind="ghost" disabled={step === 0} onClick={() => setStep(step - 1)}>Back</Button>
+            {step < STEPS.length - 1
+              ? <Button disabled={!canNext} onClick={() => setStep(step + 1)}>{nextLabel}</Button>
+              : <Button disabled={busy || !businessId || (!named && !allowBlank)} onClick={submit}>{busy ? "Starting…" : `Generate for ${biz?.name ?? "this shop"}`}</Button>}
+          </div>
+        </div>
+
+        {step > 0 && (
+          <Card className="space-y-2 lg:sticky lg:top-4">
+            <h2 className="text-sm font-semibold">So far</h2>
+            <Fact k="Shop" v={biz?.name ?? "Not chosen yet"} />
+            <Fact k="Promoting" v={product || "Not named yet"} />
+            <Fact k="Deal" v={offerLine(brief)} />
+            <Fact k="For" v={brief.audience || "Not chosen yet"} />
+            <Fact k="Where" v={brief.region || "Not set yet"} />
+            <Fact k="In" v={langList(languages) || "No language yet"} />
+            <Fact k="On" v={mode === "ai" ? "AI will choose" : Object.keys(chosen).map(cap).join(", ") || "Not chosen yet"} />
+          </Card>
+        )}
       </div>
+    </div>
+  );
+}
+
+function Fact({ k, v }: { k: string; v: string }) {
+  return (
+    <div>
+      <div className="text-xs text-slate-600">{k}</div>
+      <div className="text-sm text-slate-900">{v}</div>
     </div>
   );
 }
@@ -268,8 +348,9 @@ function Toggle({ on, onClick, children, small }: { on: boolean; onClick: () => 
   );
 }
 
-function Row({ k, v, empty = "AI will fill this in" }: { k: string; v?: string | null; empty?: string }) {
-  return <><dt className="text-slate-600">{k}</dt><dd>{v || <span className="text-slate-600">{empty}</span>}</dd></>;
+function Row({ k, v }: { k: string; v?: string | null }) {
+  if (!v) return null;
+  return <><dt className="text-slate-600">{k}</dt><dd>{v}</dd></>;
 }
 
 function VoiceButton({ onText }: { onText: (t: string) => void }) {

@@ -165,7 +165,7 @@ export default function Accounts() {
             text={`For developers who already have a ${via === "LinkedIn" ? "LinkedIn" : "Meta Graph API"} token. We check it with ${via} before saving.`} />
           <MethodOption on={method === "simulated"} onClick={() => setMethod("simulated")} title="Try it with a simulated account"
             text="Nothing is posted anywhere. Every publish is clearly labelled simulated, which is ideal for demos and testing." />
-          <details className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+          <details className="rounded-lg bg-slate-100 p-3 text-xs text-slate-600">
             <summary className="cursor-pointer font-medium">Why can't I just type my password here?</summary>
             Instagram, Facebook, WhatsApp and LinkedIn don't allow apps to log in with your password: their publishing APIs only
             accept a permission token that you grant on their own login page. That also keeps your account safe, because
@@ -248,7 +248,7 @@ export default function Accounts() {
           )}
           <div className="flex gap-2">
             <Button onClick={restart}>Connect another account</Button>
-            <Link to="/" className={`inline-flex items-center rounded-lg border border-slate-500 bg-white px-4 py-2 font-medium text-slate-700 hover:bg-slate-50 ${focusCls}`}>Go to campaigns</Link>
+            <Link to="/campaigns" className={`inline-flex items-center rounded-lg border border-slate-500 bg-white px-4 py-2 font-medium text-slate-700 hover:bg-slate-50 ${focusCls}`}>Go to campaigns</Link>
           </div>
         </Card>
       )}

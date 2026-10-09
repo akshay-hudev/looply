@@ -71,6 +71,7 @@ export interface Brief {
 }
 export interface Brain {
   brief?: Brief;
+  requested_languages?: string[];
   content_mode: string;
   objective: string;
   clarifying_questions: string[];
@@ -181,10 +182,13 @@ export interface Contact {
   opt_in_source: string;
 }
 export interface Learning {
+  id?: string;
   insight: string;
   evidence: string;
   recommendation: string;
   campaign_id?: string;
+  simulated?: boolean;
+  at?: string;
 }
 export interface AnalyticsRow {
   asset_id: string;

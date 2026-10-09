@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import { api, auth } from "../lib/api";
 import { Me } from "../lib/types";
+import { ThemeToggle } from "../lib/theme";
 import { Button, Card, DocumentTitle, ErrorNote, Field, idleCls, inputCls, selectedCls } from "../lib/ui";
 
 const MODES = [
@@ -44,6 +45,7 @@ export default function AuthPage() {
   return (
     <main className="mx-auto mt-16 max-w-md">
       <DocumentTitle title={mode === "register" ? "Create account" : "Log in"} />
+      <div className="mb-4 flex justify-end"><ThemeToggle /></div>
       <h1 className="mb-1 text-center text-3xl font-bold text-brand-700">LocalMind</h1>
       <p className="mb-6 text-center text-sm text-slate-600">AI marketing campaigns in your customers' language.</p>
       <Card>

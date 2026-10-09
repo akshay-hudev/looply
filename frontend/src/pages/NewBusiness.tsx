@@ -43,7 +43,7 @@ export default function NewBusiness() {
       <ErrorNote error={error} />
       <div className="flex flex-wrap items-center gap-3">
         <Button type="submit" disabled={busy}>{busy ? "Saving…" : "Save business"}</Button>
-        <Link to="/" className="text-sm text-slate-600 underline">Back to campaigns</Link>
+        <Link to="/campaigns" className="text-sm text-slate-600 underline">Back to campaigns</Link>
       </div>
     </form>
   );

@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>LocalMind</title>
+    <script>
+      (function () {
+        var stored = "system";
+        try { stored = localStorage.getItem("lm.theme") || "system"; } catch (e) {}
+        var dark = stored === "dark" || (stored !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) document.documentElement.classList.add("dark");
+        document.documentElement.dataset.theme = stored === "light" || stored === "dark" ? stored : "system";
+      })();
+    </script>
   </head>
   <body class="bg-slate-50 text-slate-900">
     <div id="root"></div>

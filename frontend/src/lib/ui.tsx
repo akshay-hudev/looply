@@ -2,7 +2,7 @@ import { ReactNode, useEffect } from "react";
 
 export const focusCls =
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-700";
-export const fieldCls = `rounded-lg border border-slate-500 px-3 py-2 text-sm ${focusCls}`;
+export const fieldCls = `rounded-lg border border-slate-500 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 ${focusCls}`;
 export const inputCls = `w-full ${fieldCls}`;
 export const selectedCls = "bg-brand-700 text-white";
 export const idleCls = "bg-slate-100 text-slate-700 hover:bg-slate-200";

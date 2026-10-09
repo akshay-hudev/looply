@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents import campaign_manager, change_agent
+from app.api.businesses import ensure_learning_ids
 from app.api.serializers import campaign_out
 from app.core.db import SessionLocal
 from app.core.security import decode_access_token
@@ -138,6 +139,42 @@ def list_campaigns(status_filter: str | None = Query(None, alias="status"), busi
     if business_id:
         q = q.where(Campaign.business_id == business_id)
     return [campaign_out(c) for c in ctx.db.scalars(q.order_by(Campaign.created_at.desc()))]
+
+
+WAITING = {"clarifying", "strategy_review", "review"}
+
+
+def _locked(brain: dict) -> bool:
+    brief = brain.get("brief") or {}
+    strategy = brain.get("strategy") or {}
+    return any(brief.get(k) for k in ("product", "offer", "region", "audience")) or bool(strategy.get("languages"))
+
+
+@router.get("/start")
+def campaign_start(business_id: str | None = None, learning: str | None = None,
+                   ctx: OrgContext = Depends(get_org_context)):
+    """Place and languages for the next campaign, from the shop's last locked campaign. Not from the URL."""
+    campaigns = list(ctx.db.scalars(
+        select(Campaign).where(Campaign.org_id == ctx.org_id)
+        .order_by(Campaign.created_at.desc(), Campaign.id.desc())))
+    last_used = campaigns[0].business_id if campaigns else None
+    biz_id = business_id or last_used
+    if not biz_id:
+        return {"business_id": None, "region": None, "languages": [], "note": None}
+    biz = get_owned(ctx, Business, biz_id)
+    ensure_learning_ids(ctx, biz)
+    prior = next((c for c in campaigns if c.business_id == biz_id and c.status not in WAITING and _locked(c.brain or {})), None)
+    brain = (prior.brain if prior else {}) or {}
+    brief = brain.get("brief") or {}
+    strategy = brain.get("strategy") or {}
+    region = (brief.get("region") or "").strip() or ", ".join(p for p in (biz.address, biz.city) if p) or None
+    languages = [str(l).lower() for l in (strategy.get("languages") or brain.get("requested_languages") or []) if l]
+    note = None
+    if learning:
+        match = next((l for l in (biz.learnings or []) if isinstance(l, dict) and l.get("id") == learning), None)
+        if match and match.get("recommendation"):
+            note = match["recommendation"]
+    return {"business_id": biz.id, "region": region or None, "languages": languages, "note": note}
 
 
 @router.get("/{campaign_id}")

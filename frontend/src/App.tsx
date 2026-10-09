@@ -6,6 +6,7 @@ import { auth } from "./lib/api";
 import Accounts from "./pages/Accounts";
 import AuthPage from "./pages/Auth";
 import CampaignPage from "./pages/Campaign";
+import Campaigns from "./pages/Campaigns";
 import Dashboard from "./pages/Dashboard";
 import NewBusiness from "./pages/NewBusiness";
 import NewCampaign from "./pages/NewCampaign";
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="/login" element={<AuthPage />} />
         <Route element={<Guard><Shell /></Guard>}>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/campaigns" element={<Campaigns />} />
           <Route path="/campaigns/new" element={<NewCampaign />} />
           <Route path="/campaigns/:id" element={<CampaignPage />} />
           <Route path="/businesses/new" element={<NewBusiness />} />
