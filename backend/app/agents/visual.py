@@ -79,6 +79,7 @@ async def generate(ctx: PipelineContext, asset: Asset, media: MediaService | Non
     asset.media_status = "processing"
     ctx.db.commit()
     try:
+        user_corr = (asset.content or {}).get("user_correction")
         payload = {
             **creative_context(ctx),
             "platform": asset.platform, "format": asset.format,
@@ -90,6 +91,7 @@ async def generate(ctx: PipelineContext, asset: Asset, media: MediaService | Non
             "locality": {"city": brain.locality.city, "area": brain.locality.area},
             "audience": brain.strategy.primary_audience,
             "default_aspect_ratio": DEFAULT_RATIO.get(asset.format, "1:1"),
+            "user_correction_notes": user_corr,
         }
         vp = await call_agent(ctx, "visual", VisualPrompt, payload, temperature=0.7)
         # Overlay text is customer-facing; it must pass the same numeric checks as the copy.
@@ -97,7 +99,8 @@ async def generate(ctx: PipelineContext, asset: Asset, media: MediaService | Non
             vp.overlay_text = (asset.content or {}).get("headline") or ""
         size = SIZES.get(vp.aspect_ratio, "1024x1024")
         lang = language_name(asset.language)
-        prompt = (f"{vp.prompt}\n\nRender this exact text clearly on the image ({lang}): "
+        corr_instruction = f"\nSpecific user requested corrections to apply: {user_corr}" if user_corr else ""
+        prompt = (f"{vp.prompt}{corr_instruction}\n\nRender this exact text clearly on the image ({lang}): "
                   f"\"{vp.overlay_text}\"\nAvoid: {vp.negative_prompt}")
         slides = carousel_slides(asset, brain) if asset.format == "carousel" else []
         cover = creative_copy(asset, brain, slide_label=f"1/{len(slides)}" if slides else "")

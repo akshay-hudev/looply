@@ -326,45 +326,156 @@ def platform(p: dict) -> dict:
 
 
 LOCAL = {
-    "kn": ("ಈ ವೀಕೆಂಡ್ {product} ಕೇವಲ {price}!", "{discount} ರಿಯಾಯಿತಿ - ಬನ್ನಿ, ಎಂಜಾಯ್ ಮಾಡಿ!", "ಇಂದೇ ಬನ್ನಿ"),
-    "hi": ("इस वीकेंड {product} सिर्फ {price} में!", "{discount} की छूट - आज ही आइए!", "आज ही आइए"),
-    "ta": ("இந்த வீக்கெண்ட் {product} வெறும் {price}!", "{discount} தள்ளுபடி - வாங்க!", "இன்றே வாருங்கள்"),
-    "te": ("ఈ వీకెండ్ {product} కేవలం {price}!", "{discount} తగ్గింపు - రండి!", "ఈరోజే రండి"),
+    "kn": [
+        ("ಈ ವೀಕೆಂಡ್ {product} ಕೇವಲ {price}!", "ಬೆಂಗಳೂರಿನ ನಮ್ಮ ಪ್ರೀತಿಯ {name} ಗೆ ಬನ್ನಿ! {discount} ವಿಶೇಷ ರಿಯಾಯಿತಿ ಪಡೆಯಿರಿ. ಒಮ್ಮೆ ರುಚಿ ನೋಡಿ, ನಿಮ್ಮ ಕುಟುಂಬದೊಂದಿಗೆ ಸಂಭ್ರಮಿಸಿ!", "ಇಂದೇ ಬನ್ನಿ!"),
+        ("ನಿಮ್ಮ ಫೇವರಿಟ್ {product} ಗೆ ವಿಶೇಷ ಆಫರ್!", "{name} ನಲ್ಲಿ {price} ಗೆ ಅತ್ಯುತ್ತಮ {product}. {discount} ಡಿಸ್ಕೌಂಟ್‌ನೊಂದಿಗೆ ರುಚಿಕರ ಅನುಭವ ಅನುಭವಿಸಿ.", "ಈಗಲೇ ಭೇಟಿ ನೀಡಿ"),
+        ("{product} - {discount} ಆಫರ್!", "ನಮ್ಮ {name} ನಲ್ಲಿ ಅತ್ಯುತ್ತಮ ರುಚಿ ಮತ್ತು ಆತಿಥ್ಯ. {price} ರಿಂದ ಪ್ರಾರಂಭ.", "ತಡ ಮಾಡಬೇಡಿ, ಬನ್ನಿ")
+    ],
+    "kn_en": [
+        ("This weekend, {product} just {price} at {name}!", "Bengaluru folks! Get {discount} off on your favorite {product}. Visit {name} this weekend with friends and family!", "Visit today!"),
+        ("Special deal on {product} - Only {price}!", "Enjoy {discount} discount on fresh {product} at {name}. Perfect hangout spot in town!", "Check it out!"),
+        ("{discount} OFF on {product}!", "Best {product} in town at {name}. Starts at just {price}. Don't miss out!", "Come over today")
+    ],
+    "hi": [
+        ("इस वीकेंड {product} सिर्फ {price} में!", "हमारे {name} में आपका स्वागत है! {product} पर पाएँ {discount} की विशेष छूट। आज ही अपने दोस्तों के साथ आइए!", "आज ही आइए!"),
+        ("आपके पसंदीदा {product} पर खास ऑफर!", "{name} में पाएँ लज़ीज़ {product} केवल {price} में। {discount} डिस्काउंट का लाभ उठाएं।", "अभी पधारें"),
+        ("{product} पर धमाकेदार {discount} छूट!", "{name} में बेहतरीन स्वाद का आनंद लें। शुरुआती कीमत सिर्फ {price}।", "देर न करें, आज ही आएं")
+    ],
+    "hi_en": [
+        ("Is weekend {product} sirf {price} mein at {name}!", "Aapka favorite {product} ab {discount} off par! {name} aao aur apne doston ke saath enjoy karo.", "Aaj hi aao!"),
+        ("Special offer on {product} - Just {price}!", "Pao {discount} discount on {product} at {name}. Perfect hangout destination!", "Visit now!"),
+        ("{product} par {discount} OFF!", "Best {product} in town at {name}, starting at {price}. Don't miss this deal!", "Come today")
+    ],
+    "ta": [
+        ("இந்த வீக்கெண்ட் {product} வெறும் {price}!", "நமது {name} உணவகத்திற்கு வாருங்கள்! {product} மீது {discount} சிறப்பு தள்ளுபடி பெறுக. குடும்பத்துடன் வந்து மகிழுங்கள்!", "இன்றே வாருங்கள்!"),
+        ("உங்களுக்கு பிடித்த {product} சிறப்பு ஆஃபர்!", "{name} இல் சிறந்த {product} வெறும் {price} மட்டுமே. {discount} தள்ளுபடியுடன் சுவைத்து மகிழுங்கள்.", "இப்போதே வாருங்கள்"),
+        ("{product} மீது {discount} தள்ளுபடி!", "{name} இல் மிகச்சிறந்த சுவை. தொடக்க விலை வெறும் {price}.", "உடனே வாருங்கள்")
+    ],
+    "ta_en": [
+        ("This weekend {product} just {price} at {name}!", "Chennai friends! Enjoy {discount} off on your favorite {product} at {name}. Bring your gang today!", "Come today!"),
+        ("Special deal on {product} - Only {price}!", "Get {discount} discount on delicious {product} at {name}. Perfect spot to relax!", "Visit now!"),
+        ("{discount} OFF on {product}!", "Best {product} at {name}, starting from {price}. Don't miss out!", "Come over now")
+    ],
+    "te": [
+        ("ఈ వీకెండ్ {product} కేవలం {price} మాత్రమే!", "మన {name} లో విశేష ఆఫర్! {product} పై {discount} తగ్గింపు పొందండి. కుటుంబంతో వచ్చి ఆనందించండి!", "ఈరోజే రండి!"),
+        ("మీకు ఇష్టమైన {product} పై ప్రత్యేక ఆఫర్!", "{name} లో రుచికరమైన {product} కేవలం {price} కే. {discount} డిస్కౌంట్ ను సొంతం చేసుకోండి.", "ఇప్పుడే రండి"),
+        ("{product} పై {discount} తగ్గింపు!", "{name} లో అత్యుత్తమ రుచులు. ప్రారంభ ధర కేవలం {price}.", "ఆలస్యం చేయకండి, రండి")
+    ],
+    "mr": [
+        ("या वीकेंडला {product} फक्त {price} मध्ये!", "आपल्या {name} मध्ये खास ऑफर! {product} वर मिळवा {discount} सूट. आजच भेट द्या!", "आजच या!"),
+        ("तुमच्या आवडत्या {product} वर विशेष ऑफर!", "{name} मध्ये चविष्ट {product} फक्त {price} मध्ये. {discount} डिस्काउंटचा आनंद घ्या.", "आत्ताच भेट द्या"),
+        ("{product} वर {discount} सूट!", "{name} मध्ये उत्तम चव आणि अनुभव. सुरुवात फक्त {price} पासून.", "उशीर करू नका, या")
+    ],
+    "bn": [
+        ("এই উইকেন্ডে {product} মাত্র {price} এ!", "আমাদের {name}-এ আপনাকে স্বাগতম! {product}-এ পান {discount} বিশেষ ছাড়। আজই আসুন!", "আজই আসুন!"),
+        ("আপনার পছন্দের {product}-এ বিশেষ অফার!", "{name}-এ সুস্বাদু {product} মাত্র {price}-এ। {discount} ডিসকাউন্টের আনন্দ নিন।", "এখনই আসুন"),
+        ("{product}-এ {discount} ছাড়!", "{name}-এ সেরা স্বাদ ও পরিবেশ। শুরু মাত্র {price} থেকে।", "দেরি করবেন না, চলে আসুন")
+    ],
+    "gu": [
+        ("આ વીકેન્ડ પર {product} માત્ર {price} માં!", "અમારા {name} માં ખાસ ઓફર! {product} પર મેળવો {discount} ની છૂટ. આજે જ પધારો!", "આજે જ પધારો!"),
+        ("તમારા મનપસંદ {product} પર ખાસ ઓફર!", "{name} માં સ્વાદિષ્ટ {product} માત્ર {price} માં. {discount} ડિસ્કાઉન્ટનો લાભ લો.", "હવે જ પધારો"),
+        ("{product} પર {discount} છૂટ!", "{name} માં ઉત્તમ સ્વાદ. શરૂઆત માત્ર {price} થી.", "મોડું ન કરો, આજે જ આવો")
+    ],
 }
+
 LOCAL_NO_OFFER = {
-    "kn": ("{product} - ನಿಮ್ಮ ಹೊಸ ಫೇವರಿಟ್ ಜಾಗ", "ಒಮ್ಮೆ ಬನ್ನಿ, ರುಚಿ ನೋಡಿ!", "ಇಂದೇ ಬನ್ನಿ"),
-    "hi": ("{product} - आपकी नई पसंदीदा जगह", "एक बार आइए, फिर बार-बार आएंगे!", "आज ही आइए"),
-    "ta": ("{product} - உங்கள் புதிய ஃபேவரிட்", "ஒருமுறை வாங்க, மீண்டும் வருவீங்க!", "இன்றே வாருங்கள்"),
-    "te": ("{product} - మీ కొత్త ఫేవరెట్", "ఒక్కసారి రండి, మళ్ళీ మళ్ళీ వస్తారు!", "ఈరోజే రండి"),
+    "kn": [
+        ("{product} - ನಿಮ್ಮ ಹೊಸ ಫೇವರಿಟ್ ಜಾಗ", "{name} ನಲ್ಲಿ ಅದ್ಭುತ ರುಚಿ ಮತ್ತು ಹಿತಕರ ವಾತಾವರಣ. ಒಮ್ಮೆ ಬನ್ನಿ, ನಿಮ್ಮ ಪ್ರೀತಿಯ ಜನರೊಂದಿಗೆ ಎಂಜಾಯ್ ಮಾಡಿ!", "ಇಂದೇ ಬನ್ನಿ!"),
+        ("ನಮ್ಮ {name} ಗೆ ಸ್ವಾಗತ!", "ಅತ್ಯುತ್ತಮ {product} ಅನುಭವಕ್ಕಾಗಿ {name} ಗೆ ಭೇಟಿ ನೀಡಿ. ಸದಾ ಹೊಸತನ, ಸದಾ ಸ್ವಾದಿಷ್ಟ.", "ಈಗಲೇ ಭೇಟಿ ನೀಡಿ"),
+        ("{name} ನಲ್ಲಿ ವಿಶೇಷ {product}", "ರುಚಿಕರ ಸೇವನೆ ಮತ್ತು ಅತ್ಯುತ್ತಮ ಸೇವೆ. ನಿಮ್ಮ ಆಗಮನಕ್ಕಾಗಿ ಕಾಯುತ್ತಿದ್ದೇವೆ.", "ಬನ್ನಿ ಸಂಭ್ರಮಿಸಿ")
+    ],
+    "hi": [
+        ("{product} - आपकी नई पसंदीदा जगह", "{name} में पाएं बेहतरीन स्वाद और शानदार माहौल। एक बार आइए, बार-बार आने का मन करेगा!", "आज ही आइए!"),
+        ("हमारे {name} में आपका स्वागत है!", "सर्वश्रेष्ठ {product} के अनोखे अनुभव के लिए {name} पधारें। ताजगी और स्वाद हर पल।", "अभी पधारें"),
+        ("{name} का खास {product}", "लाजवाब जायका और बेहतरीन खातिरदारी। हम आपके इंतजार में हैं।", "आइए और आनंद लें")
+    ],
+    "ta": [
+        ("{product} - உங்கள் புதிய ஃபேவரிட் இடம்", "{name} இல் மிகச்சிறந்த சுவை மற்றும் இனிமையான சூழல். ஒருமுறை வாருங்கள், மீண்டும் மீண்டும் வருவீர்கள்!", "இன்றே வாருங்கள்!"),
+        ("நமது {name} உங்களை வரவேற்கிறது!", "சிறந்த {product} அனுபவத்திற்கு {name} வாருங்கள். என்றும் புத்துணர்ச்சி, என்றும் சுவை.", "இப்போதே வாருங்கள்"),
+        ("{name} இன் சிறப்பு {product}", "அருமையான சுவை மற்றும் சிறப்பான உபசரிப்பு. உங்களுக்காக காத்திருக்கிறோம்.", "வாருங்கள் மகிழுங்கள்")
+    ],
+    "te": [
+        ("{product} - మీ కొత్త ఫేవరెట్ స్థలం", "{name} లో అద్భుతమైన రుచులు మరియు మంచి వాతావరణం. ఒక్కసారి రండి, మళ్ళీ మళ్ళీ వస్తారు!", "ఈరోజే రండి!"),
+        ("మా {name} కు స్వాగతం!", "అత్యుత్తమ {product} అనుభవం కోసం {name} ను సందర్శించండి. ఎల్లప్పుడూ తాజా, ఎల్లప్పుడూ రుచి.", "ఇప్పుడే రండి"),
+        ("{name} లో ప్రత్యేక {product}", "అద్భుతమైన రుచి మరియు ఆతిథ్యం. మీ రాక కోసం ఎదురుచూస్తున్నాము.", "రండి ఆనందించండి")
+    ],
 }
 
 
 def language_culture(p: dict) -> dict:
     o, code = _offer(p), p["target_language"]["code"]
-    tpl = LOCAL.get(code)
+    code_sw = p.get("code_switching", False)
+    lookup_code = f"{code}_en" if code_sw and f"{code}_en" in LOCAL else code
+
+    tpl = LOCAL.get(lookup_code) or LOCAL.get(code)
+    no_offer_tpl = LOCAL_NO_OFFER.get(code)
+    has_offer = bool(o.get("price") or o.get("discount"))
+
     out = []
     for v in p["variants_to_adapt"]:
         src = v["original_english"]
         cands = []
+        
+        # Build 3 distinct candidates
         for i in range(3):
-            if code in LOCAL_NO_OFFER and not (o.get("price") or o.get("discount")):
-                head, body, cta = (t.format(product=o.get("product") or "", name=p.get("business_name") or "")
-                                   for t in LOCAL_NO_OFFER[code])
+            prod = o.get("product") or p.get("business_name") or "our special"
+            price = o.get("price") or ""
+            disc = o.get("discount") or ""
+            b_name = p.get("business_name") or "our store"
+
+            if not has_offer and no_offer_tpl:
+                t_tuple = no_offer_tpl[i % len(no_offer_tpl)]
+                head = t_tuple[0].format(product=prod, name=b_name)
+                body = t_tuple[1].format(product=prod, name=b_name)
+                cta = t_tuple[2].format(product=prod, name=b_name)
             elif tpl:
-                head, body, cta = (t.format(product=o.get("product") or "", price=o.get("price") or "",
-                                            discount=o.get("discount") or "") for t in tpl)
+                t_tuple = tpl[i % len(tpl)]
+                head = t_tuple[0].format(product=prod, price=price, discount=disc, name=b_name)
+                body = t_tuple[1].format(product=prod, price=price, discount=disc, name=b_name)
+                cta = t_tuple[2].format(product=prod, price=price, discount=disc, name=b_name)
             else:
-                head, body, cta = f"[{code}] {src['headline']}", f"[{code}] {src['body']}", f"[{code}] {src['cta']}"
+                head = f"[{code}] {src['headline']}"
+                body = f"[{code}] {src['body']}"
+                cta = src.get("cta") or "Visit today"
+
             copy = {**src, "headline": head, "hook": head, "body": body, "cta": cta}
             if src.get("video_script"):
                 copy["video_script"] = src["video_script"]
-            cands.append({"adaptation": copy, "scores": {
-                "naturalness": 9 - i, "catchiness": 8 - i % 2, "cultural_fit": 9 - i, "meaning_preservation": 10 - i,
-                "platform_fit": 8}})
-        out.append({"label": v["label"], "candidates": cands,
-                    "back_translation": f"This weekend {_facts_line(o)}. Come and enjoy!",
-                    "cultural_notes": "Uses a friendly local register with common English words like 'weekend'."})
+
+            # Candidate scores matching 30/25/20/15/10 weighting scheme
+            # Candidate 0: Native cultural adaptation (9.5/10)
+            # Candidate 1: Conversational engagement (9.0/10)
+            # Candidate 2: Direct CTA focus (8.5/10)
+            scores = {
+                0: {"naturalness": 9.5, "meaning_preservation": 9.5, "cultural_fit": 9.5, "platform_fit": 9.0, "catchiness": 9.0},
+                1: {"naturalness": 9.0, "meaning_preservation": 9.0, "cultural_fit": 9.0, "platform_fit": 9.0, "catchiness": 8.5},
+                2: {"naturalness": 8.5, "meaning_preservation": 9.5, "cultural_fit": 8.5, "platform_fit": 8.5, "catchiness": 8.0},
+            }[i]
+
+            strategy_desc = [
+                "Native cultural adaptation with idiomatic phrasing & local tone",
+                "Conversational engagement tailored for social audience",
+                "Direct offer & call-to-action focus for high conversion"
+            ][i]
+
+            cands.append({
+                "adaptation": copy,
+                "scores": scores,
+                "adaptation_strategy": strategy_desc,
+            })
+
+        bt = f"Enjoy {prod}" + (f" with {disc} off" if disc else "") + (f" at {price}" if price else "") + f" at {b_name}. Come visit today!"
+        notes = f"Adapted for {p.get('target_language', {}).get('name', code)} in {p.get('target_locale', 'local area')} using a warm, engaging register."
+
+        out.append({
+            "label": v["label"],
+            "candidates": cands,
+            "back_translation": bt,
+            "cultural_notes": notes
+        })
+
     return {"variants": out}
+
 
 
 def truth(p: dict) -> dict:

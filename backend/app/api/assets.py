@@ -53,20 +53,42 @@ def select_variant(asset_id: str, ctx: OrgContext = Depends(get_org_context)):
     return asset_out(a)
 
 
+class RegenerateIn(BaseModel):
+    instructions: str | None = None
+    all_languages: bool = True
+
+
 @router.post("/{asset_id}/regenerate")
-async def regenerate_asset(asset_id: str, background: BackgroundTasks, ctx: OrgContext = Depends(get_org_context)):
+async def regenerate_asset(asset_id: str, background: BackgroundTasks, body: RegenerateIn | None = None, ctx: OrgContext = Depends(get_org_context)):
     a = get_owned(ctx, Asset, asset_id)
     campaign = ctx.db.get(Campaign, a.campaign_id)
     if campaign.status == "generating":
         raise HTTPException(409, "The campaign is still generating")
-    group = _siblings(ctx, a)
+    
+    all_langs = body.all_languages if body is not None else True
+    instructions = (body.instructions or "").strip() if body is not None else ""
+
+    if all_langs:
+        # Regenerate across every language for this platform and format
+        group = list(ctx.db.scalars(select(Asset).where(
+            Asset.campaign_id == a.campaign_id,
+            Asset.platform == a.platform,
+            Asset.format == a.format,
+        )))
+    else:
+        group = _siblings(ctx, a)
+
     for s in group:
         s.status = "stale"
         s.attempts = 0
+        if instructions:
+            s.content = {**(s.content or {}), "user_correction": instructions}
+        s.media_url = s.media_task_id = s.media_status = None
+
     campaign.status = "generating"
     ctx.db.commit()
     await dispatch(background, "produce_campaign", campaign.id, "regen", [s.id for s in group])
-    return {"action": "regenerating", "asset_ids": [s.id for s in group]}
+    return {"action": "regenerating", "asset_ids": [s.id for s in group], "all_languages": all_langs, "instructions": instructions}
 
 
 @router.post("/{asset_id}/reject")

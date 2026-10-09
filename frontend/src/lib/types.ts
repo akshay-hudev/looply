@@ -217,8 +217,24 @@ export interface AnalyticsReport {
 }
 
 export const LANGUAGES: Record<string, string> = {
-  en: "English", hi: "Hindi", kn: "Kannada", ta: "Tamil", te: "Telugu", mr: "Marathi", bn: "Bengali",
-  ml: "Malayalam", gu: "Gujarati", pa: "Punjabi", ur: "Urdu", es: "Spanish", fr: "French", ar: "Arabic",
-  pt: "Portuguese", id: "Indonesian",
+  en: "English",
+  kn: "Kannada (ಕನ್ನಡ)",
+  kn_en: "Kanglish (Kannada + English)",
+  hi: "Hindi (हिंदी)",
+  hi_en: "Hinglish (Hindi + English)",
+  ta: "Tamil (தமிழ்)",
+  ta_en: "Tanglish (Tamil + English)",
+  te: "Telugu (తెలుగు)",
+  mr: "Marathi (मराठी)",
+  bn: "Bengali (বাংলা)",
+  ml: "Malayalam (മലയാളം)",
+  gu: "Gujarati (ગુજરાતી)",
+  pa: "Punjabi (ਪੰਜਾਬੀ)",
+  ur: "Urdu (اردو)",
+  es: "Spanish",
+  fr: "French",
+  ar: "Arabic",
+  pt: "Portuguese",
+  id: "Indonesian",
 };
 export const PLATFORMS = ["instagram", "whatsapp", "facebook", "linkedin"] as const;

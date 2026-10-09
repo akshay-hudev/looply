@@ -32,6 +32,8 @@ class CampaignIn(BaseModel):
     content_mode: Literal["ai", "user"] = "ai"
     requested_formats: dict[str, list[str]] = Field(default_factory=dict)
     requested_languages: list[str] = Field(default_factory=list)
+    code_switching: bool | None = None
+    code_switching_style: str | None = None
     auto_accept_strategy: bool = False
 
 
@@ -121,6 +123,10 @@ async def create_campaign(body: CampaignIn, background: BackgroundTasks, ctx: Or
                           requested_platforms=list(formats), brief=body.brief,
                           requested_languages=[l.lower() for l in body.requested_languages])
     seed_brain(brain, body.brief)
+    if body.code_switching is not None:
+        brain.strategy.code_switching = body.code_switching
+    if body.code_switching_style:
+        brain.strategy.code_switching_style = body.code_switching_style
     title = body.title or body.brief.product or body.message[:80] or f"{biz.name} campaign"
     c = Campaign(org_id=ctx.org_id, business_id=body.business_id, title=title[:255],
                  status="generating", stage="intake", brain=brain.model_dump(mode="json"))

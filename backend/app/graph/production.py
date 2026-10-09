@@ -77,6 +77,10 @@ async def recreate_copy(ctx: PipelineContext, assets: list[Asset], feedback: dic
     by_platform: dict[str, set[str]] = defaultdict(set)
     for a in assets:
         by_platform[a.platform].add(a.format)
+    if feedback is None:
+        user_corrs = [str((a.content or {}).get("user_correction") or "") for a in assets if (a.content or {}).get("user_correction")]
+        if user_corrs:
+            feedback = {"user_instruction": "; ".join(set(user_corrs))}
     for platform_name, formats in by_platform.items():
         out = await platform.run(ctx, platform_name, sorted(formats), feedback=feedback)
         for a in assets:
@@ -85,7 +89,10 @@ async def recreate_copy(ctx: PipelineContext, assets: list[Asset], feedback: dic
             variants = {v.label: v for v in out.get(a.format, [])}
             v = variants.get(a.variant) or next(iter(variants.values()))
             master = AssetCopy.model_validate(v.model_dump(exclude={"label"}))
+            user_corr = (a.content or {}).get("user_correction")
             _set_copy(a, master, source=master)
+            if user_corr:
+                a.content = {**(a.content or {}), "user_correction": user_corr}
             a.status = "draft" if a.language == "en" else "pending_localization"
             a.brain_version = brain.version
             a.media_url = a.media_task_id = a.media_status = None
