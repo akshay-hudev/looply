@@ -3,6 +3,8 @@
 const TOKEN = "lm.token";
 const ORG = "lm.org";
 
+export const API_BASE = import.meta.env.VITE_API_URL ?? "";
+
 export const auth = {
   token: () => localStorage.getItem(TOKEN),
   org: () => localStorage.getItem(ORG),
@@ -35,7 +37,7 @@ async function request<T>(method: string, path: string, body?: unknown, isForm =
     payload = JSON.stringify(body);
   }
   void isForm;
-  const res = await fetch(`/api${path}`, { method, headers, body: payload });
+  const res = await fetch(`${API_BASE}/api${path}`, { method, headers, body: payload });
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { auth } from "./api";
+import { API_BASE, auth } from "./api";
 import { AgentEvent } from "./types";
 
 /** Live agent progress for a campaign via SSE, with polling fallback. */
@@ -10,7 +10,7 @@ export function useCampaignStream(campaignId: string | undefined, enabled: boole
 
   useEffect(() => {
     if (!campaignId || !enabled) return;
-    const url = `/api/campaigns/${campaignId}/stream?token=${encodeURIComponent(auth.token() || "")}` +
+    const url = `${API_BASE}/api/campaigns/${campaignId}/stream?token=${encodeURIComponent(auth.token() || "")}` +
       `&org_id=${encodeURIComponent(auth.org() || "")}`;
     const es = new EventSource(url);
     es.addEventListener("agent", (e) => {
